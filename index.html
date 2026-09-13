@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Banquillo · Control Basket</title>
+<meta name="description" content="PWA para controlar minutos, faltas y notas de tu equipo de baloncesto en el banquillo. 100% offline.">
+<meta name="theme-color" content="#0b0e14">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="./icons/icon.svg">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Banquillo">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div id="bg-court" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="./icons/icon.svg" alt="" class="brand-ball">
+    <div>
+      <strong>BANQUILLO</strong>
+      <span id="brand-sub">control de partido</span>
+    </div>
+  </div>
+  <div id="live-pill" class="live-pill hidden"><span class="dot"></span><span id="live-pill-text">EN VIVO</span></div>
+</header>
+
+<nav class="tabs" role="tablist" aria-label="Navegación principal">
+  <button class="tab is-active" data-view="teams" role="tab">🏀<span>Equipos</span></button>
+  <button class="tab" data-view="setup" role="tab">📋<span>Partido</span></button>
+  <button class="tab" data-view="live" role="tab">⏱️<span>En vivo</span></button>
+  <button class="tab" data-view="summary" role="tab">📊<span>Resumen</span></button>
+</nav>
+
+<main id="app">
+
+  <!-- ============ VIEW: EQUIPOS ============ -->
+  <section id="view-teams" class="view is-active">
+    <div class="hero">
+      <h1>Mis equipos</h1>
+      <p>Se guardan en este iPad / móvil. No los pierdes entre partidos.</p>
+    </div>
+    <div id="teams-list" class="stack"></div>
+
+    <div class="card">
+      <h2 id="team-form-title">Nuevo equipo</h2>
+      <label class="field"><span>Nombre del equipo</span>
+        <input id="team-name" type="text" placeholder="Ej. Júnior Fem. U16" maxlength="40" autocomplete="off">
+      </label>
+      <div class="row-2">
+        <label class="field"><span>Jugadora</span>
+          <input id="player-name" type="text" placeholder="Nombre" maxlength="30" autocomplete="off">
+        </label>
+        <label class="field small"><span>Dorsal</span>
+          <input id="player-number" type="text" inputmode="numeric" placeholder="7" maxlength="3" autocomplete="off">
+        </label>
+        <button id="btn-add-player" class="btn ghost" type="button">＋</button>
+      </div>
+      <div id="player-draft-list" class="chips"></div>
+      <div class="actions">
+        <button id="btn-save-team" class="btn primary" type="button">Guardar equipo</button>
+        <button id="btn-cancel-edit" class="btn ghost hidden" type="button">Cancelar</button>
+      </div>
+      <p class="hint">Tip: puedes guardar varios equipos (ej. U16 y Sénior) y elegir uno en cada partido.</p>
+    </div>
+  </section>
+
+  <!-- ============ VIEW: CONFIG PARTIDO ============ -->
+  <section id="view-setup" class="view">
+    <div class="hero">
+      <h1>Configurar partido</h1>
+      <p>Elige equipo, convocadas y rival. Tarda 30 segundos.</p>
+    </div>
+    <div class="card">
+      <label class="field"><span>Mi equipo</span><select id="setup-team"></select></label>
+      <label class="field"><span>Duración de cada cuarto (min)</span>
+        <div class="stepper big">
+          <button type="button" id="q-minus" class="btn ghost">−</button>
+          <strong id="q-len-label">10</strong>
+          <button type="button" id="q-plus" class="btn ghost">＋</button>
+        </div>
+      </label>
+    </div>
+    <div class="card">
+      <h2>Convocadas hoy <span id="roster-count" class="badge">0</span></h2>
+      <div id="roster-list" class="stack tight"></div>
+    </div>
+    <div class="card">
+      <h2>Rival · solo dorsales</h2>
+      <div class="row-2">
+        <label class="field"><span>Dorsal rival</span>
+          <input id="opp-number" type="text" inputmode="numeric" placeholder="Ej. 23" maxlength="3">
+        </label>
+        <button id="btn-add-opp" class="btn ghost" type="button">＋</button>
+      </div>
+      <div id="opp-draft-list" class="chips"></div>
+      <div class="actions">
+        <button id="btn-start-match" class="btn primary xl" type="button">▶ Empezar partido</button>
+      </div>
+      <p id="setup-warn" class="warn hidden"></p>
+    </div>
+  </section>
+
+  <!-- ============ VIEW: EN VIVO ============ -->
+  <section id="view-live" class="view">
+    <div id="live-empty" class="card center">
+      <h2>No hay partido en curso</h2>
+      <p>Configura el partido y dale a “Empezar”.</p>
+      <button class="btn primary" data-goto="setup" type="button">Ir a configurar</button>
+    </div>
+
+    <div id="live-body" class="hidden">
+      <div class="card clock-card">
+        <div class="clock-top">
+          <div class="q-selector">
+            <button id="btn-q-prev" class="btn ghost sm" type="button">◀</button>
+            <strong id="quarter-label">1º</strong>
+            <button id="btn-q-next" class="btn ghost sm" type="button">▶</button>
+          </div>
+          <div id="bonus-pill" class="bonus-pill">BONUS</div>
+        </div>
+        <div id="clock" class="clock">10:00</div>
+        <div class="progress"><div id="progress-fill"></div></div>
+        <div class="clock-actions">
+          <button id="btn-play" class="btn primary xl" type="button">▶</button>
+          <button id="btn-pause" class="btn warnbtn" type="button">⏸</button>
+          <button id="btn-clock-reset" class="btn ghost" type="button">↺ cuarto</button>
+        </div>
+        <div class="teamfouls">
+          <span>Faltas equipo este cuarto: <strong id="team-fouls-num">0</strong></span>
+          <div class="mini-step">
+            <button id="btn-tf-minus" class="btn ghost sm" type="button">−</button>
+            <button id="btn-tf-plus" class="btn primary sm" type="button">+ Falta equipo</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="live-grid">
+        <div class="card">
+          <h2>En pista <span id="court-count" class="badge hot">0/5</span></h2>
+          <div id="court-list" class="stack tight"></div>
+        </div>
+        <div class="card">
+          <h2>Banquillo</h2>
+          <div id="bench-list" class="stack tight"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Rival · faltas por dorsal</h2>
+        <div class="teamfouls">
+          <span>Faltas equipo rival este cuarto: <strong id="opp-team-fouls-num">0</strong></span>
+          <div class="mini-step">
+            <button id="btn-otf-minus" class="btn ghost sm" type="button">−</button>
+            <button id="btn-otf-plus" class="btn primary sm" type="button">+ Falta equipo</button>
+            <div id="opp-bonus-pill" class="bonus-pill">BONUS (4)</div>
+          </div>
+        </div>
+        <div id="opp-live-list" class="opp-grid"></div>
+      </div>
+
+      <div class="card">
+        <h2>Notas rápidas</h2>
+        <div class="row-2">
+          <input id="note-text" type="text" placeholder="Ej. cerrar rebote, cambiar bloqueo…" maxlength="140" autocomplete="off">
+        </div>
+        <div class="row-2">
+          <select id="note-player"><option value="">General</option></select>
+          <button id="btn-add-note" class="btn primary" type="button">＋ Nota</button>
+        </div>
+        <div id="notes-list" class="stack tight"></div>
+      </div>
+
+      <div class="card danger-zone">
+        <div class="actions">
+          <button id="btn-finish" class="btn primary xl" type="button">🏁 Finalizar partido</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VIEW: RESUMEN ============ -->
+  <section id="view-summary" class="view">
+    <div class="hero"><h1>Resumen</h1><p id="summary-sub">Todavía no hay partido finalizado.</p></div>
+    <div id="summary-body"></div>
+    <div class="card">
+      <div class="actions">
+        <button id="btn-new-match" class="btn primary xl" type="button">＋ Nuevo partido</button>
+        <button id="btn-export" class="btn ghost" type="button">📋 Copiar resumen</button>
+      </div>
+      <p class="hint">Los equipos guardados se conservan. Solo se borra el partido en curso.</p>
+    </div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script src="./app.js" defer></script>
+</body>
+</html>
