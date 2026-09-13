@@ -372,9 +372,36 @@ $('#btn-clock-reset').onclick = () => {
 function adjustClock(deltaSec) {
   if (!match || match.status !== 'live') return;
   const maxMs = match.quarterLengthSec * 1000;
-  match.clockRemainingMs = Math.max(0, Math.min(maxMs, match.clockRemainingMs + deltaSec * 1000));
+  const oldMs = match.clockRemainingMs;
+  const newMs = Math.max(0, Math.min(maxMs, oldMs + deltaSec * 1000));
+  const effectiveDeltaMs = newMs - oldMs;
+  if (effectiveDeltaMs === 0) return;
+
+  match.clockRemainingMs = newMs;
   if (match.clockRunning) match.lastTick = Date.now();
-  persist(); paintClock();
+
+  // El reloj es una cuenta atrás:
+  // Si restamos segundos al reloj (ej. −5s), se ha jugado más tiempo real (+5s para las de pista).
+  // Si sumamos segundos al reloj (ej. +5s), retrocedemos el tiempo de juego (−5s para las de pista).
+  const playedDeltaSec = -(effectiveDeltaMs / 1000);
+  match.onCourtIds.forEach(id => {
+    const st = match.stats[id];
+    if (!st) return;
+    st.total = Math.max(0, (st.total ?? st.seconds ?? 0) + playedDeltaSec);
+    st.stint = Math.max(0, (st.stint ?? 0) + playedDeltaSec);
+    st.seconds = st.total;
+  });
+
+  if (match.clockRemainingMs <= 0) {
+    match.clockRemainingMs = 0;
+    match.clockRunning = false;
+    try { navigator.vibrate && navigator.vibrate([120, 60, 120]); } catch {}
+    toast('⏱ Fin del ' + qLabel(match.quarter) + ' — pulsa ▶ en el siguiente');
+  }
+
+  persist();
+  paintClock();
+  paintPlayers();
   toast(`Reloj: ${fmtClock(match.clockRemainingMs)}`);
 }
 $('#btn-adj-m5').onclick = () => adjustClock(-5);
