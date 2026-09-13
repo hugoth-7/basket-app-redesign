@@ -67,6 +67,16 @@
       </div>
       <p class="hint">Tip: puedes guardar varios equipos (ej. U16 y Sénior) y elegir uno en cada partido.</p>
     </div>
+
+    <div class="card">
+      <h2>Copia de seguridad</h2>
+      <p class="hint">Exporta tus equipos y datos para guardarlos en otro dispositivo o restaurarlos si limpias el navegador.</p>
+      <div class="actions">
+        <button id="btn-export-backup" class="btn ghost" type="button">📥 Exportar copia (JSON)</button>
+        <button id="btn-import-backup" class="btn ghost" type="button">📤 Restaurar copia</button>
+        <input type="file" id="backup-file-input" accept=".json" class="hidden">
+      </div>
+    </div>
   </section>
 
   <!-- ============ VIEW: CONFIG PARTIDO ============ -->
@@ -121,6 +131,10 @@
             <strong id="quarter-label">1º</strong>
             <button id="btn-q-next" class="btn ghost sm" type="button">▶</button>
           </div>
+          <button id="btn-possession" class="btn-poss" type="button" title="Alternar flecha de posesión">
+            <span class="poss-tag">POSESIÓN</span>
+            <strong id="poss-arrow-text">◀ NOSOTROS</strong>
+          </button>
           <div id="bonus-pill" class="bonus-pill">BONUS</div>
         </div>
         <div id="clock" class="clock">10:00</div>
@@ -130,11 +144,29 @@
           <button id="btn-pause" class="btn warnbtn" type="button">⏸</button>
           <button id="btn-clock-reset" class="btn ghost" type="button">↺ cuarto</button>
         </div>
+        <div class="clock-adjust">
+          <span class="adjust-label">Ajuste reloj:</span>
+          <button id="btn-adj-m5" class="btn ghost sm" type="button" title="Restar 5 segundos">−5s</button>
+          <button id="btn-adj-m1" class="btn ghost sm" type="button" title="Restar 1 segundo">−1s</button>
+          <button id="btn-adj-p1" class="btn ghost sm" type="button" title="Sumar 1 segundo">+1s</button>
+          <button id="btn-adj-p5" class="btn ghost sm" type="button" title="Sumar 5 segundos">+5s</button>
+        </div>
         <div class="teamfouls">
           <span>Faltas equipo este cuarto: <strong id="team-fouls-num">0</strong></span>
           <div class="mini-step">
             <button id="btn-tf-minus" class="btn ghost sm" type="button">−</button>
             <button id="btn-tf-plus" class="btn primary sm" type="button">+ Falta equipo</button>
+          </div>
+        </div>
+        <div class="timeouts-bar">
+          <div class="to-group">
+            <span class="to-title">TM Mi equipo:</span>
+            <div id="to-dots-team" class="to-dots"></div>
+          </div>
+          <span id="to-phase-badge" class="badge">1ª P (2 TM)</span>
+          <div class="to-group">
+            <span class="to-title">TM Rival:</span>
+            <div id="to-dots-opp" class="to-dots"></div>
           </div>
         </div>
       </div>

@@ -28,6 +28,31 @@ let draftOpp = [];
 let setupQuarterMin = 10;
 let tickTimer = null;
 let tickN = 0;
+let wakeLock = null;
+
+/* ---------- Screen Wake Lock ---------- */
+async function requestWakeLock() {
+  if ('wakeLock' in navigator && !wakeLock && match && match.status === 'live') {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (e) {}
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    const v = document.querySelector('.view.is-active');
+    if (v && v.id === 'view-live' && match?.status === 'live') requestWakeLock();
+  } else {
+    releaseWakeLock();
+  }
+});
 
 /* ---------- navegación ---------- */
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
@@ -37,6 +62,8 @@ function showView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('is-active', v.id === 'view-' + name));
   if (name === 'summary') renderSummary();
   if (name === 'setup') renderSetup();
+  if (name === 'live' && match?.status === 'live') requestWakeLock();
+  else releaseWakeLock();
   window.scrollTo({ top: 0 });
 }
 
@@ -113,6 +140,61 @@ $('#btn-cancel-edit').onclick = () => {
   $('#btn-cancel-edit').classList.add('hidden'); renderDraft();
 };
 
+/* ---------- BACKUP (COPIA DE SEGURIDAD) ---------- */
+$('#btn-export-backup').onclick = () => {
+  const data = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    teams: load(LS_TEAMS, []),
+    match: load(LS_MATCH, null)
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `banquillo-backup-${dateStr}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Copia descargada 📥');
+};
+$('#btn-import-backup').onclick = () => {
+  $('#backup-file-input').click();
+};
+$('#backup-file-input').onchange = (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const imported = JSON.parse(ev.target.result);
+      if (!imported || (!Array.isArray(imported.teams) && !imported.match)) {
+        return toast('Archivo JSON no válido');
+      }
+      if (!confirm('¿Restaurar copia de seguridad? Se reemplazarán los equipos y el partido actual.')) return;
+      if (Array.isArray(imported.teams)) {
+        teams = imported.teams;
+        save(LS_TEAMS, teams);
+      }
+      if (imported.match !== undefined) {
+        match = imported.match;
+        save(LS_MATCH, match);
+      }
+      ensureShape();
+      renderTeams();
+      renderSetup();
+      renderLive();
+      updatePill();
+      toast('¡Copia restaurada con éxito! 🏀');
+    } catch (err) {
+      toast('Error al leer el archivo JSON');
+    } finally {
+      e.target.value = '';
+    }
+  };
+  reader.readAsText(file);
+};
+
 /* ---------- SETUP ---------- */
 function renderSetup() {
   const sel = $('#setup-team'); sel.innerHTML = '';
@@ -178,23 +260,33 @@ $('#btn-start-match').onclick = () => {
     onCourtIds: roster.slice(0, 5).map(p => p.id),
     stats: Object.fromEntries(roster.map(p => [p.id, { seconds: 0, total: 0, stint: 0, fouls: 0 }])),
     oppNumbers: [...draftOpp], oppFouls: Object.fromEntries(draftOpp.map(n => [n, 0])),
-    teamFouls: [0], oppTeamFouls: [0], notes: [], status: 'live', startedAt: Date.now(), finishedAt: null
+    teamFouls: [0], oppTeamFouls: [0],
+    possession: 'team',
+    timeouts: { team: { h1: 0, h2: 0, ot: {} }, opp: { h1: 0, h2: 0, ot: {} } },
+    notes: [], status: 'live', startedAt: Date.now(), finishedAt: null
   };
   save(LS_MATCH, match);
   startTicker(); renderLive(); updatePill();
+  requestWakeLock();
   showView('live'); toast('¡Partido en marcha! Elige el quinteto 🏀');
 };
 
 /* ---------- EN VIVO ---------- */
 function cur() { return match; }
 function persist() { save(LS_MATCH, match); }
-// Migración suave: partidos guardados antes de existir oppTeamFouls / total+stint
+// Migración suave: partidos guardados antes de existir oppTeamFouls / total+stint / timeouts / possession
 function ensureShape() {
   if (!match) return;
   if (!Array.isArray(match.teamFouls)) match.teamFouls = [0];
   if (!Array.isArray(match.oppTeamFouls)) match.oppTeamFouls = [0];
   while (match.teamFouls.length < match.quarter) match.teamFouls.push(0);
   while (match.oppTeamFouls.length < match.quarter) match.oppTeamFouls.push(0);
+  if (!match.possession) match.possession = 'team';
+  if (!match.timeouts) match.timeouts = { team: { h1: 0, h2: 0, ot: {} }, opp: { h1: 0, h2: 0, ot: {} } };
+  if (!match.timeouts.team) match.timeouts.team = { h1: 0, h2: 0, ot: {} };
+  if (!match.timeouts.opp) match.timeouts.opp = { h1: 0, h2: 0, ot: {} };
+  if (typeof match.timeouts.team.ot !== 'object' || match.timeouts.team.ot === null) match.timeouts.team.ot = {};
+  if (typeof match.timeouts.opp.ot !== 'object' || match.timeouts.opp.ot === null) match.timeouts.opp.ot = {};
   const on = new Set(match.onCourtIds || []);
   (match.roster || []).forEach(p => {
     if (!match.stats[p.id]) match.stats[p.id] = { seconds: 0, total: 0, stint: 0, fouls: 0 };
@@ -242,9 +334,10 @@ function renderLive() {
   const empty = !match || match.status !== 'live';
   $('#live-empty').classList.toggle('hidden', !empty);
   $('#live-body').classList.toggle('hidden', empty);
-  if (empty) { updatePill(); return; }
+  if (empty) { updatePill(); releaseWakeLock(); return; }
   ensureShape();
-  paintClock(); paintPlayers(); paintOpp(); paintNotes(); paintNotePlayers();
+  requestWakeLock();
+  paintClock(); paintPossession(); paintTimeouts(); paintPlayers(); paintOpp(); paintNotes(); paintNotePlayers();
   updatePill();
 }
 function paintClock() {
@@ -262,17 +355,137 @@ function paintClock() {
   const ob = $('#opp-bonus-pill');
   if (ob) { ob.classList.toggle('on', otf >= 4); ob.textContent = otf >= 4 ? '★ BONUS ★' : 'BONUS (4)'; }
   $('#btn-play').textContent = match.clockRunning ? '⏳ corriendo…' : '▶';
+  paintPossession();
+  paintTimeouts();
 }
 $('#btn-play').onclick = () => {
   if (!match || match.status !== 'live') return;
   if (match.clockRemainingMs <= 0) return toast('Cuarto a 0 — avanza de cuarto (▶) o resetea');
   match.clockRunning = true; match.lastTick = Date.now(); persist(); paintClock();
+  requestWakeLock();
 };
 $('#btn-pause').onclick = () => { if (match) { match.clockRunning = false; persist(); paintClock(); } };
 $('#btn-clock-reset').onclick = () => {
   if (!match || !confirm('¿Resetear el reloj de este cuarto?')) return;
   match.clockRunning = false; match.clockRemainingMs = match.quarterLengthSec * 1000; persist(); paintClock();
 };
+function adjustClock(deltaSec) {
+  if (!match || match.status !== 'live') return;
+  const maxMs = match.quarterLengthSec * 1000;
+  match.clockRemainingMs = Math.max(0, Math.min(maxMs, match.clockRemainingMs + deltaSec * 1000));
+  if (match.clockRunning) match.lastTick = Date.now();
+  persist(); paintClock();
+  toast(`Reloj: ${fmtClock(match.clockRemainingMs)}`);
+}
+$('#btn-adj-m5').onclick = () => adjustClock(-5);
+$('#btn-adj-m1').onclick = () => adjustClock(-1);
+$('#btn-adj-p1').onclick = () => adjustClock(1);
+$('#btn-adj-p5').onclick = () => adjustClock(5);
+
+function paintPossession() {
+  const b = $('#btn-possession'), t = $('#poss-arrow-text');
+  if (!b || !t || !match) return;
+  const isTeam = match.possession === 'team';
+  b.classList.toggle('poss-team', isTeam);
+  b.classList.toggle('poss-opp', !isTeam);
+  t.textContent = isTeam ? '◀ NOSOTROS' : 'RIVAL ▶';
+}
+$('#btn-possession').onclick = () => {
+  if (!match || match.status !== 'live') return;
+  match.possession = match.possession === 'team' ? 'opp' : 'team';
+  persist(); paintPossession();
+  toast(match.possession === 'team' ? 'Posesión: Mi equipo ◀' : 'Posesión: Rival ▶');
+};
+
+function getTimeoutsInfo() {
+  const q = match.quarter;
+  if (q <= 2) {
+    return {
+      label: '1ª P (2 TM)',
+      max: 2,
+      usedTeam: match.timeouts.team.h1 || 0,
+      usedOpp: match.timeouts.opp.h1 || 0,
+      setTeam: (v) => { match.timeouts.team.h1 = v; },
+      setOpp: (v) => { match.timeouts.opp.h1 = v; }
+    };
+  } else if (q <= 4) {
+    return {
+      label: '2ª P (3 TM)',
+      max: 3,
+      usedTeam: match.timeouts.team.h2 || 0,
+      usedOpp: match.timeouts.opp.h2 || 0,
+      setTeam: (v) => { match.timeouts.team.h2 = v; },
+      setOpp: (v) => { match.timeouts.opp.h2 = v; }
+    };
+  } else {
+    const otNum = q - 4;
+    return {
+      label: `PR${otNum} (1 TM)`,
+      max: 1,
+      usedTeam: match.timeouts.team.ot[q] || 0,
+      usedOpp: match.timeouts.opp.ot[q] || 0,
+      setTeam: (v) => { match.timeouts.team.ot[q] = v; },
+      setOpp: (v) => { match.timeouts.opp.ot[q] = v; }
+    };
+  }
+}
+function paintTimeouts() {
+  if (!match) return;
+  const info = getTimeoutsInfo();
+  const badge = $('#to-phase-badge');
+  if (badge) badge.textContent = info.label;
+  const boxTeam = $('#to-dots-team'), boxOpp = $('#to-dots-opp');
+  if (!boxTeam || !boxOpp) return;
+  boxTeam.innerHTML = ''; boxOpp.innerHTML = '';
+
+  for (let i = 1; i <= info.max; i++) {
+    const dotT = document.createElement('button');
+    dotT.type = 'button';
+    dotT.className = 'to-dot' + (i <= info.usedTeam ? ' active' : '');
+    dotT.title = i <= info.usedTeam ? `TM ${i} pedido (toca para desmarcar)` : `Marcar TM ${i} (Mi equipo)`;
+    dotT.onclick = () => {
+      const next = i <= info.usedTeam ? i - 1 : i;
+      info.setTeam(next);
+      if (next >= i) {
+        match.notes.push({
+          id: uid(),
+          text: '⏱️ TM pedido (Mi equipo)',
+          playerId: null,
+          quarter: match.quarter,
+          clock: fmtClock(match.clockRemainingMs),
+          createdAt: Date.now()
+        });
+        paintNotes();
+        toast('TM registrado · Mi equipo');
+      }
+      persist(); paintTimeouts();
+    };
+    boxTeam.appendChild(dotT);
+
+    const dotO = document.createElement('button');
+    dotO.type = 'button';
+    dotO.className = 'to-dot opp' + (i <= info.usedOpp ? ' active' : '');
+    dotO.title = i <= info.usedOpp ? `TM Rival ${i} pedido (toca para desmarcar)` : `Marcar TM Rival ${i}`;
+    dotO.onclick = () => {
+      const next = i <= info.usedOpp ? i - 1 : i;
+      info.setOpp(next);
+      if (next >= i) {
+        match.notes.push({
+          id: uid(),
+          text: '⏱️ TM pedido (Rival)',
+          playerId: null,
+          quarter: match.quarter,
+          clock: fmtClock(match.clockRemainingMs),
+          createdAt: Date.now()
+        });
+        paintNotes();
+        toast('TM registrado · Rival');
+      }
+      persist(); paintTimeouts();
+    };
+    boxOpp.appendChild(dotO);
+  }
+}
 $('#btn-q-prev').onclick = () => {
   if (!match || match.quarter <= 1) return;
   match.quarter--; match.clockRunning = false; match.clockRemainingMs = match.quarterLengthSec * 1000; persist(); renderLive();
@@ -440,6 +653,7 @@ $('#note-text').addEventListener('keydown', e => { if (e.key === 'Enter') $('#bt
 $('#btn-finish').onclick = () => {
   if (!match || !confirm('¿Finalizar el partido y ver el resumen?')) return;
   match.status = 'finished'; match.finishedAt = Date.now(); match.clockRunning = false;
+  releaseWakeLock();
   persist(); updatePill(); showView('summary'); toast('Partido finalizado 🏁');
 };
 
@@ -462,6 +676,15 @@ function renderSummary() {
   html += `</table><p class="hint">Faltas de equipo por cuarto: ${match.teamFouls.map((f, i) => qLabel(i + 1) + ': ' + f).join(' · ')}</p></div>`;
   ensureShape();
   html += `<div class="card"><h2>Rival · faltas</h2><p>${match.oppNumbers.map(n => '#' + esc(n) + ' (🔴' + (match.oppFouls[n] || 0) + ')').join(' · ') || '—'}</p><p class="hint">Faltas de equipo rival por cuarto: ${match.oppTeamFouls.map((f, i) => qLabel(i + 1) + ': ' + f).join(' · ')}</p></div>`;
+
+  const tmTeam = `1ª Parte: ${match.timeouts?.team?.h1 || 0}/2 · 2ª Parte: ${match.timeouts?.team?.h2 || 0}/3`;
+  const tmOpp = `1ª Parte: ${match.timeouts?.opp?.h1 || 0}/2 · 2ª Parte: ${match.timeouts?.opp?.h2 || 0}/3`;
+  html += `<div class="card"><h2>Tiempos Muertos y Posesión</h2>
+    <p><strong>TM Mi equipo:</strong> ${tmTeam}</p>
+    <p><strong>TM Rival:</strong> ${tmOpp}</p>
+    <p class="hint">Última flecha de posesión: ${match.possession === 'team' ? 'Mi equipo' : 'Rival'}</p>
+  </div>`;
+
   html += `<div class="card"><h2>Notas (${match.notes.length})</h2>` + (match.notes.map(n =>
     `<p>• <strong>[${qLabel(n.quarter)} · ${esc(n.clock)}]</strong> ${esc(n.text)} <span class="hint">— ${n.playerId ? esc(playerById(n.playerId)?.name || '') : 'General'}</span></p>`
   ).join('') || '<p class="hint">Sin notas.</p>') + `</div>`;
@@ -469,6 +692,7 @@ function renderSummary() {
 }
 $('#btn-new-match').onclick = () => {
   if (match?.status === 'live' && !confirm('Hay un partido en vivo. ¿Descartarlo?')) return;
+  releaseWakeLock();
   match = null; persist(); renderLive(); updatePill(); showView('setup');
 };
 $('#btn-export').onclick = async () => {
@@ -477,6 +701,10 @@ $('#btn-export').onclick = async () => {
   match.roster.forEach(p => { const s = match.stats[p.id]; const t = s.total ?? s.seconds ?? 0; lines.push(`#${p.number} ${p.name} — ${fmtPlayed(t)} — ${s.fouls} faltas`); });
   lines.push('', 'Rival: ' + match.oppNumbers.map(n => `#${n} (${match.oppFouls[n] || 0})`).join(' '));
   if (Array.isArray(match.oppTeamFouls)) lines.push('Equipo rival por cuarto: ' + match.oppTeamFouls.map((f, i) => qLabel(i + 1) + ': ' + f).join(' '));
+  lines.push('', `Tiempos Muertos Mi equipo: ${match.timeouts?.team?.h1 || 0}/2 (1ªP) · ${match.timeouts?.team?.h2 || 0}/3 (2ªP)`);
+  lines.push(`Tiempos Muertos Rival: ${match.timeouts?.opp?.h1 || 0}/2 (1ªP) · ${match.timeouts?.opp?.h2 || 0}/3 (2ªP)`);
+  lines.push(`Posesión: ${match.possession === 'team' ? 'Mi equipo' : 'Rival'}`);
+  lines.push('', 'Notas:');
   match.notes.forEach(n => lines.push(`[${qLabel(n.quarter)} ${n.clock}] ${n.text}`));
   try { await navigator.clipboard.writeText(lines.join('\n')); toast('Resumen copiado 📋'); }
   catch { toast('No se pudo copiar'); }
