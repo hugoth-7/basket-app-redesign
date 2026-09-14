@@ -229,10 +229,21 @@ $('#q-minus').onclick = () => { setupQuarterMin = Math.max(1, setupQuarterMin - 
 $('#q-plus').onclick = () => { setupQuarterMin = Math.min(20, setupQuarterMin + 1); $('#q-len-label').textContent = setupQuarterMin; };
 
 let rosterSel = new Set();
+let rosterSelTeamId = null;
 function renderRoster() {
   const t = selectedTeam(); const box = $('#roster-list'); box.innerHTML = '';
   if (!t) { box.innerHTML = '<p class="hint">Sin equipos.</p>'; return; }
-  if (!rosterSel.size) rosterSel = new Set(t.players.map(p => p.id));
+  // Si se cambió de equipo, reseleccionar a todas las del nuevo equipo.
+  // Sin esto se conservaban IDs del equipo anterior y el filtro salía mal.
+  if (rosterSelTeamId !== t.id || !rosterSel.size) {
+    rosterSel = new Set(t.players.map(p => p.id));
+    rosterSelTeamId = t.id;
+  } else {
+    // Podar IDs que ya no existen (p. ej. jugadora borrada del equipo)
+    const valid = new Set(t.players.map(p => p.id));
+    rosterSel.forEach(id => { if (!valid.has(id)) rosterSel.delete(id); });
+    if (!rosterSel.size) rosterSel = new Set(t.players.map(p => p.id));
+  }
   t.players.forEach(p => {
     const row = document.createElement('label');
     row.className = 'roster-row';
@@ -246,8 +257,7 @@ function renderRoster() {
     };
     box.appendChild(row);
   });
-  $('#roster-count').textContent = rosterSel.size || t.players.length;
-  if (!rosterSel.size) rosterSel = new Set(t.players.map(p => p.id));
+  $('#roster-count').textContent = rosterSel.size;
 }
 function renderOppDraft() {
   const box = $('#opp-draft-list'); box.innerHTML = '';
@@ -540,7 +550,21 @@ $('#btn-pause').onclick = () => { if (match) { match.clockRunning = false; persi
 $('#btn-clock-reset').onclick = () => {
   if (!match || !confirm('¿Resetear el reloj de este cuarto?')) return;
   pendingSubId = null;
-  match.clockRunning = false; match.clockRemainingMs = match.quarterLengthSec * 1000; persist(); paintClock();
+  match.clockRunning = false;
+  const maxMs = match.quarterLengthSec * 1000;
+  const playedSec = (maxMs - match.clockRemainingMs) / 1000;
+  // Descontar a las de pista el tiempo ya sumado en este cuarto (igual que adjustClock).
+  // Sin esto, resetear inflaba los minutos.
+  if (playedSec > 0) {
+    match.onCourtIds.forEach(id => {
+      const st = match.stats[id];
+      if (!st) return;
+      st.total = Math.max(0, (st.total ?? st.seconds ?? 0) - playedSec);
+      st.stint = Math.max(0, (st.stint ?? 0) - playedSec);
+      st.seconds = st.total;
+    });
+  }
+  match.clockRemainingMs = maxMs; persist(); paintClock(); paintPlayers();
 };
 function adjustClock(deltaSec) {
   if (!match || match.status !== 'live') return;
@@ -738,6 +762,11 @@ $('#btn-otf-minus').onclick = () => {
 };
 
 function playerById(id) { return match.roster.find(p => p.id === id); }
+function playerNameIn(m, id) {
+  if (!id) return '';
+  const p = (m.roster || []).find(x => x.id === id);
+  return p ? p.name : '';
+}
 function paintPlayers() {
   const court = $('#court-list'), bench = $('#bench-list');
   const on = new Set(match.onCourtIds);
@@ -1132,9 +1161,16 @@ function renderSummary() {
 
   const scT = curM.score?.team ?? 0, scO = curM.score?.opp ?? 0;
   const scDiff = scT - scO;
+  const nQ = Math.max(curM.quarter || 1, (curM.scoreByQuarter || []).length, 1);
+  let qRows = '';
+  for (let i = 0; i < nQ; i++) {
+    const q = (curM.scoreByQuarter || [])[i] || { team: 0, opp: 0 };
+    const t = q.team || 0, o = q.opp || 0, d = t - o;
+    qRows += `<tr><td>${qLabel(i + 1)}</td><td>${t}</td><td>${o}</td><td><strong>${d > 0 ? '+' : ''}${d}</strong></td></tr>`;
+  }
   let html = `<div class="card center"><h2>Marcador final</h2>
     <div class="final-score"><span>NOS ${scT}</span><span class="final-diff">${scDiff >= 0 ? '+' : ''}${scDiff}</span><span>RIV ${scO}</span></div>
-    <p class="hint">Por cuarto: ${((curM.scoreByQuarter || []).map((q, i) => qLabel(i + 1) + ' ' + (q.team || 0) + '-' + (q.opp || 0)).join(' · ') || '—')}</p></div>`;
+    <table class="res" style="margin-top:10px"><tr><th>Cuarto</th><th>NOS</th><th>RIV</th><th>Parcial</th></tr>${qRows}<tr><td><strong>Total</strong></td><td><strong>${scT}</strong></td><td><strong>${scO}</strong></td><td><strong>${scDiff >= 0 ? '+' : ''}${scDiff}</strong></td></tr></table></div>`;
 
   const rows = [...(curM.roster || [])].sort((a, b) => ((curM.stats[b.id]?.plusMinus ?? 0) - (curM.stats[a.id]?.plusMinus ?? 0)) || (((curM.stats[b.id]?.total ?? curM.stats[b.id]?.seconds) || 0) - (((curM.stats[a.id]?.total ?? curM.stats[a.id]?.seconds) || 0))));
   html += `<div class="card"><h2>Mi equipo · minutos, faltas y +/−</h2><table class="res">
@@ -1165,7 +1201,7 @@ function renderSummary() {
   let notesHtml = `<div class="card"><h2>Notas tácticas (${tacticalNotes.length})</h2>`;
   if (tacticalNotes.length) {
     notesHtml += tacticalNotes.map(n =>
-      `<p>• <strong>[${qLabel(n.quarter)} · ${esc(n.clock)}]</strong> ${esc(n.text)} <span class="hint">— ${n.playerId ? esc(playerById(n.playerId)?.name || '') : 'General'}</span></p>`
+      `<p>• <strong>[${qLabel(n.quarter)} · ${esc(n.clock)}]</strong> ${esc(n.text)} <span class="hint">— ${n.playerId ? esc(playerNameIn(curM, n.playerId) || '') : 'General'}</span></p>`
     ).join('');
   } else {
     notesHtml += '<p class="hint">Sin notas tácticas en este partido.</p>';
@@ -1228,7 +1264,13 @@ $('#btn-export').onclick = async () => {
   if (!curM) return toast('Nada que copiar');
   const lines = [`BANQUILLO · ${curM.teamName} · ${new Date(curM.startedAt).toLocaleDateString('es-ES')}`, ''];
   lines.push(`MARCADOR: NOS ${curM.score?.team ?? 0} - ${curM.score?.opp ?? 0} RIV`);
-  if (Array.isArray(curM.scoreByQuarter)) lines.push('Por cuarto: ' + curM.scoreByQuarter.map((q, i) => qLabel(i + 1) + ' ' + (q.team || 0) + '-' + (q.opp || 0)).join(' '));
+  if (Array.isArray(curM.scoreByQuarter)) {
+    lines.push('Parciales:');
+    curM.scoreByQuarter.forEach((q, i) => {
+      const t = q.team || 0, o = q.opp || 0, d = t - o;
+      lines.push(`${qLabel(i + 1)}: NOS ${t} - ${o} RIV (${d >= 0 ? '+' : ''}${d})`);
+    });
+  }
   lines.push('');
   [...(curM.roster || [])].sort((a, b) => ((curM.stats[b.id]?.plusMinus ?? 0) - (curM.stats[a.id]?.plusMinus ?? 0))).forEach(p => {
     const s = curM.stats[p.id];
