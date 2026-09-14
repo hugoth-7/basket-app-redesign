@@ -29,6 +29,7 @@ let setupQuarterMin = 10;
 let tickTimer = null;
 let tickN = 0;
 let wakeLock = null;
+let pendingSubId = null;
 
 /* ---------- Screen Wake Lock ---------- */
 async function requestWakeLock() {
@@ -334,7 +335,7 @@ function renderLive() {
   const empty = !match || match.status !== 'live';
   $('#live-empty').classList.toggle('hidden', !empty);
   $('#live-body').classList.toggle('hidden', empty);
-  if (empty) { updatePill(); releaseWakeLock(); return; }
+  if (empty) { updatePill(); releaseWakeLock(); pendingSubId = null; return; }
   ensureShape();
   requestWakeLock();
   paintClock(); paintPossession(); paintTimeouts(); paintPlayers(); paintOpp(); paintNotes(); paintNotePlayers();
@@ -367,6 +368,7 @@ $('#btn-play').onclick = () => {
 $('#btn-pause').onclick = () => { if (match) { match.clockRunning = false; persist(); paintClock(); } };
 $('#btn-clock-reset').onclick = () => {
   if (!match || !confirm('¿Resetear el reloj de este cuarto?')) return;
+  pendingSubId = null;
   match.clockRunning = false; match.clockRemainingMs = match.quarterLengthSec * 1000; persist(); paintClock();
 };
 function adjustClock(deltaSec) {
@@ -484,6 +486,14 @@ function paintTimeouts() {
         });
         paintNotes();
         toast('TM registrado · Mi equipo');
+      } else {
+        const revIdx = [...match.notes].reverse().findIndex(n => n.text?.includes('TM') && n.text?.includes('Mi equipo') && n.quarter === match.quarter);
+        if (revIdx >= 0) {
+          const actualIdx = match.notes.length - 1 - revIdx;
+          match.notes.splice(actualIdx, 1);
+          paintNotes();
+        }
+        toast('TM desmarcado · Mi equipo');
       }
       persist(); paintTimeouts();
     };
@@ -507,6 +517,14 @@ function paintTimeouts() {
         });
         paintNotes();
         toast('TM registrado · Rival');
+      } else {
+        const revIdx = [...match.notes].reverse().findIndex(n => n.text?.includes('TM') && n.text?.includes('Rival') && n.quarter === match.quarter);
+        if (revIdx >= 0) {
+          const actualIdx = match.notes.length - 1 - revIdx;
+          match.notes.splice(actualIdx, 1);
+          paintNotes();
+        }
+        toast('TM desmarcado · Rival');
       }
       persist(); paintTimeouts();
     };
@@ -515,10 +533,12 @@ function paintTimeouts() {
 }
 $('#btn-q-prev').onclick = () => {
   if (!match || match.quarter <= 1) return;
+  pendingSubId = null;
   match.quarter--; match.clockRunning = false; match.clockRemainingMs = match.quarterLengthSec * 1000; persist(); renderLive();
 };
 $('#btn-q-next').onclick = () => {
   if (!match) return;
+  pendingSubId = null;
   match.quarter++; match.clockRunning = false; match.clockRemainingMs = match.quarterLengthSec * 1000;
   ensureShape();
   persist(); renderLive(); toast('Cuarto: ' + qLabel(match.quarter));
@@ -556,7 +576,8 @@ function paintPlayers() {
     const total = st.total ?? st.seconds ?? 0;
     const stint = inCourt ? (st.stint ?? 0) : 0;
     const el = document.createElement('div');
-    el.className = 'player-card' + (st.fouls >= 5 ? ' fouled-out' : st.fouls === 4 ? ' warning' : '');
+    const subTargetCls = pendingSubId === p.id ? ' is-sub-target' : (pendingSubId && inCourt ? ' can-sub-out' : '');
+    el.className = 'player-card' + (st.fouls >= 5 ? ' fouled-out' : st.fouls === 4 ? ' warning' : '') + subTargetCls;
     const badge = st.fouls >= 5 ? 'b5' : st.fouls === 4 ? 'b4' : '';
     const status = inCourt ? (match.clockRunning ? '● en pista' : 'en pista') : 'banquillo';
     const stintCls = !inCourt ? '' : stint >= 7 * 60 ? 'crit' : stint >= 4 * 60 ? 'warn' : '';
@@ -595,19 +616,173 @@ function paintPlayers() {
   bPs.forEach(p => bench.appendChild(mk(p, false)));
   if (!cIds.length) court.innerHTML = '<p class="hint">Toca una jugadora del banquillo para sacarla a pista.</p>';
 }
+
 function toggleCourt(id) {
+  if (!match || match.status !== 'live') return;
   const i = match.onCourtIds.indexOf(id);
-  if (i >= 0) {
-    // Sale a banquillo: la racha se congela en el total y se resetea a 0
+  const p = playerById(id);
+  if (!p) return;
+  const nowMs = match.clockRemainingMs;
+  const qNow = match.quarter;
+  const st = match.stats[id] || (match.stats[id] = { seconds: 0, total: 0, stint: 0, fouls: 0 });
+
+  // CASO 1: Hay una jugadora del banquillo esperando cambio directo (pendingSubId)
+  if (pendingSubId) {
+    if (pendingSubId === id) {
+      pendingSubId = null;
+      paintPlayers();
+      toast('Cambio cancelado');
+      return;
+    }
+
+    if (i < 0) {
+      // Ha pulsado otra del banquillo: cambiar la selección
+      pendingSubId = id;
+      paintPlayers();
+      toast(`Seleccionada #${p.number} ${p.name} · Toca quién sale de pista`);
+      return;
+    }
+
+    // Toca jugadora en pista (i >= 0): cambio directo A por B
+    const pIn = playerById(pendingSubId);
+    const pOut = p;
+    const stIn = match.stats[pIn.id] || (match.stats[pIn.id] = { seconds: 0, total: 0, stint: 0, fouls: 0 });
+    const stOut = st;
+
+    // Salida pOut
     match.onCourtIds.splice(i, 1);
-    if (match.stats[id]) { match.stats[id].stint = 0; match.stats[id].seconds = match.stats[id].total ?? 0; }
-  } else {
-    if (match.onCourtIds.length >= 5) return toast('Máximo 5 en pista — saca a una primero');
-    match.onCourtIds.push(id);
-    // Entra en pista: la racha arranca desde 0
-    if (match.stats[id]) match.stats[id].stint = 0;
+    stOut.prevStint = stOut.stint;
+    stOut.stint = 0;
+    stOut.seconds = stOut.total ?? 0;
+    stOut.leftAtMs = nowMs;
+    stOut.leftAtQuarter = qNow;
+
+    // Entrada pIn
+    match.onCourtIds.push(pIn.id);
+    stIn.stint = 0;
+    stIn.enteredAtMs = nowMs;
+    stIn.enteredAtQuarter = qNow;
+
+    const noteOutId = uid();
+    const noteInId = uid();
+    stOut.lastSubNoteId = noteOutId;
+    stIn.lastSubNoteId = noteInId;
+
+    match.notes.push({
+      id: noteOutId,
+      text: `🔄 Sale #${pOut.number} ${pOut.name}`,
+      playerId: pOut.id,
+      quarter: qNow,
+      clock: fmtClock(nowMs),
+      createdAt: Date.now()
+    });
+    match.notes.push({
+      id: noteInId,
+      text: `🔄 Entra #${pIn.number} ${pIn.name}`,
+      playerId: pIn.id,
+      quarter: qNow,
+      clock: fmtClock(nowMs),
+      createdAt: Date.now() + 1
+    });
+
+    pendingSubId = null;
+    persist();
+    paintPlayers();
+    paintNotes();
+    toast(`Cambio: Entra #${pIn.number} ⇄ Sale #${pOut.number} 🔄`);
+    return;
   }
-  persist(); paintPlayers();
+
+  // CASO 2: La jugadora está EN PISTA y sale a banquillo
+  if (i >= 0) {
+    // Si acaba de entrar por error (menos de 8s de reloj) y se vuelve a pulsar: deshacer
+    if (st.enteredAtMs != null && st.enteredAtQuarter === qNow && Math.abs(nowMs - st.enteredAtMs) < 8000) {
+      match.onCourtIds.splice(i, 1);
+      st.stint = 0;
+      st.seconds = st.total ?? 0;
+      if (st.lastSubNoteId) {
+        match.notes = match.notes.filter(n => n.id !== st.lastSubNoteId);
+        st.lastSubNoteId = null;
+      }
+      persist();
+      paintPlayers();
+      paintNotes();
+      toast(`Cambio deshecho · #${p.number} ${p.name} al banquillo`);
+      return;
+    }
+
+    // Salida normal a banquillo
+    match.onCourtIds.splice(i, 1);
+    st.prevStint = st.stint;
+    st.stint = 0;
+    st.seconds = st.total ?? 0;
+    st.leftAtMs = nowMs;
+    st.leftAtQuarter = qNow;
+
+    const noteId = uid();
+    st.lastSubNoteId = noteId;
+    match.notes.push({
+      id: noteId,
+      text: `🔄 Sale #${p.number} ${p.name}`,
+      playerId: p.id,
+      quarter: qNow,
+      clock: fmtClock(nowMs),
+      createdAt: Date.now()
+    });
+
+    persist();
+    paintPlayers();
+    paintNotes();
+    toast(`Sale #${p.number} ${p.name}`);
+    return;
+  }
+
+  // CASO 3: La jugadora está EN BANQUILLO
+  if (match.onCourtIds.length >= 5) {
+    // Ya hay 5 en pista: activar modo cambio directo
+    pendingSubId = id;
+    paintPlayers();
+    toast(`🔄 Seleccionada #${p.number} ${p.name} · Toca quién sale de pista (o toca de nuevo para cancelar)`);
+    return;
+  }
+
+  // Hay menos de 5 en pista: entra directamente
+  // Si acaba de salir por error (menos de 8s de reloj) y se vuelve a meter: deshacer salida
+  if (st.leftAtMs != null && st.leftAtQuarter === qNow && Math.abs(nowMs - st.leftAtMs) < 8000) {
+    match.onCourtIds.push(id);
+    st.stint = (st.prevStint || 0) + (st.leftAtMs - nowMs) / 1000;
+    if (st.lastSubNoteId) {
+      match.notes = match.notes.filter(n => n.id !== st.lastSubNoteId);
+      st.lastSubNoteId = null;
+    }
+    persist();
+    paintPlayers();
+    paintNotes();
+    toast(`Cambio deshecho · #${p.number} ${p.name} sigue en pista`);
+    return;
+  }
+
+  // Entrada normal
+  match.onCourtIds.push(id);
+  st.stint = 0;
+  st.enteredAtMs = nowMs;
+  st.enteredAtQuarter = qNow;
+
+  const noteId = uid();
+  st.lastSubNoteId = noteId;
+  match.notes.push({
+    id: noteId,
+    text: `🔄 Entra #${p.number} ${p.name}`,
+    playerId: p.id,
+    quarter: qNow,
+    clock: fmtClock(nowMs),
+    createdAt: Date.now()
+  });
+
+  persist();
+  paintPlayers();
+  paintNotes();
+  toast(`Entra #${p.number} ${p.name}`);
 }
 function addFoul(id) {
   const st = match.stats[id]; st.fouls++;
@@ -661,13 +836,21 @@ function paintNotes() {
   const box = $('#notes-list'); box.innerHTML = '';
   [...match.notes].reverse().forEach(n => {
     const pname = n.playerId ? playerById(n.playerId)?.name || '' : 'General';
-    const d = document.createElement('div'); d.className = 'player-card note';
+    const isSub = n.text?.startsWith('🔄');
+    const isTm = n.text?.startsWith('⏱️');
+    const d = document.createElement('div');
+    d.className = 'player-card note' + (isSub ? ' note-sub' : isTm ? ' note-tm' : '');
     d.innerHTML = `<span class="pinfo"><strong>${esc(n.text)}</strong><small>${qLabel(n.quarter)} · quedan ${esc(n.clock)} · ${esc(pname)} · ${new Date(n.createdAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</small></span>
-      <button class="btn ghost sm">×</button>`;
-    d.querySelector('button').onclick = () => { match.notes = match.notes.filter(x => x.id !== n.id); persist(); paintNotes(); };
+      <button class="btn ghost sm" title="Eliminar de las notas">×</button>`;
+    d.querySelector('button').onclick = () => {
+      match.notes = match.notes.filter(x => x.id !== n.id);
+      persist();
+      paintNotes();
+      toast('Nota eliminada');
+    };
     box.appendChild(d);
   });
-  if (!match.notes.length) box.innerHTML = '<p class="hint">Sin notas. Ej: “#7 tarda en bajar”.</p>';
+  if (!match.notes.length) box.innerHTML = '<p class="hint">Sin notas ni eventos todavía.</p>';
 }
 $('#btn-add-note').onclick = () => {
   const t = $('#note-text').value.trim();
@@ -679,6 +862,7 @@ $('#note-text').addEventListener('keydown', e => { if (e.key === 'Enter') $('#bt
 
 $('#btn-finish').onclick = () => {
   if (!match || !confirm('¿Finalizar el partido y ver el resumen?')) return;
+  pendingSubId = null;
   match.status = 'finished'; match.finishedAt = Date.now(); match.clockRunning = false;
   releaseWakeLock();
   persist(); updatePill(); showView('summary'); toast('Partido finalizado 🏁');
@@ -712,13 +896,14 @@ function renderSummary() {
     <p class="hint">Última flecha de posesión: ${match.possession === 'team' ? 'Mi equipo' : 'Rival'}</p>
   </div>`;
 
-  html += `<div class="card"><h2>Notas (${match.notes.length})</h2>` + (match.notes.map(n =>
+  html += `<div class="card"><h2>Notas y eventos (${match.notes.length})</h2>` + (match.notes.map(n =>
     `<p>• <strong>[${qLabel(n.quarter)} · ${esc(n.clock)}]</strong> ${esc(n.text)} <span class="hint">— ${n.playerId ? esc(playerById(n.playerId)?.name || '') : 'General'}</span></p>`
-  ).join('') || '<p class="hint">Sin notas.</p>') + `</div>`;
+  ).join('') || '<p class="hint">Sin notas ni eventos.</p>') + `</div>`;
   box.innerHTML = html;
 }
 $('#btn-new-match').onclick = () => {
   if (match?.status === 'live' && !confirm('Hay un partido en vivo. ¿Descartarlo?')) return;
+  pendingSubId = null;
   releaseWakeLock();
   match = null; persist(); renderLive(); updatePill(); showView('setup');
 };

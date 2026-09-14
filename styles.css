@@ -137,6 +137,11 @@ input:focus,select:focus{outline:2px solid var(--hot);border-color:var(--hot)}
 .opp-card{background:#0d1320;border:1px solid var(--line);border-radius:14px;padding:10px;text-align:center}
 .opp-card strong{font-size:24px;display:block;font-variant-numeric:tabular-nums}
 .note{border-left:4px solid var(--hot)}
+.note.note-sub{border-left-color:var(--lime)}
+.note.note-tm{border-left-color:#38bdf8}
+.player-card.is-sub-target{border-color:var(--lime)!important;box-shadow:0 0 14px rgba(184,241,53,.5)!important;animation:pulse-sub 1.2s infinite}
+.player-card.can-sub-out{border-color:var(--hot2)!important;cursor:pointer}
+@keyframes pulse-sub{50%{transform:scale(1.02)}}
 .note small{color:var(--muted)}
 table.res{width:100%;border-collapse:collapse;font-size:15px}
 table.res th,table.res td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;font-variant-numeric:tabular-nums}
