@@ -204,6 +204,12 @@
           <select id="note-player"><option value="">General</option></select>
           <button id="btn-add-note" class="btn primary" type="button">＋ Nota</button>
         </div>
+        <div class="notes-filter-bar">
+          <button type="button" class="btn-filter is-active" data-filter="all">Todas (<span id="cnt-all">0</span>)</button>
+          <button type="button" class="btn-filter" data-filter="tactical">🧠 Tácticas (<span id="cnt-tactical">0</span>)</button>
+          <button type="button" class="btn-filter" data-filter="subs">🔄 Cambios (<span id="cnt-subs">0</span>)</button>
+          <button type="button" class="btn-filter" data-filter="tm">⏱️ TMs (<span id="cnt-tm">0</span>)</button>
+        </div>
         <div id="notes-list" class="stack tight"></div>
       </div>
 
@@ -218,13 +224,20 @@
   <!-- ============ VIEW: RESUMEN ============ -->
   <section id="view-summary" class="view">
     <div class="hero"><h1>Resumen</h1><p id="summary-sub">Todavía no hay partido finalizado.</p></div>
+    <div id="history-selector-card" class="card hidden">
+      <label class="field">
+        <span>Partidos guardados (Historial)</span>
+        <select id="history-select"></select>
+      </label>
+    </div>
     <div id="summary-body"></div>
     <div class="card">
       <div class="actions">
         <button id="btn-new-match" class="btn primary xl" type="button">＋ Nuevo partido</button>
         <button id="btn-export" class="btn ghost" type="button">📋 Copiar resumen</button>
+        <button id="btn-del-history" class="btn ghost warnbtn hidden" type="button">🗑 Borrar de historial</button>
       </div>
-      <p class="hint">Los equipos guardados se conservan. Solo se borra el partido en curso.</p>
+      <p class="hint">Los equipos y el historial se conservan. Al iniciar un nuevo partido, el anterior queda archivado.</p>
     </div>
   </section>
 

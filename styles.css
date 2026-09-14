@@ -143,6 +143,10 @@ input:focus,select:focus{outline:2px solid var(--hot);border-color:var(--hot)}
 .player-card.can-sub-out{border-color:var(--hot2)!important;cursor:pointer}
 @keyframes pulse-sub{50%{transform:scale(1.02)}}
 .note small{color:var(--muted)}
+.notes-filter-bar{display:flex;gap:6px;margin:10px 0 6px;flex-wrap:wrap}
+.btn-filter{background:#0d1320;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .2s;touch-action:manipulation}
+.btn-filter:active{transform:scale(.96)}
+.btn-filter.is-active{background:#222c40;border-color:var(--hot);color:var(--txt);box-shadow:0 0 8px rgba(255,107,26,.3)}
 table.res{width:100%;border-collapse:collapse;font-size:15px}
 table.res th,table.res td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;font-variant-numeric:tabular-nums}
 table.res th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}

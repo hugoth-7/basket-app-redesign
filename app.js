@@ -1,6 +1,7 @@
 /* Banquillo PWA — vanilla JS, todo local */
 const LS_TEAMS = 'bball.teams.v1';
 const LS_MATCH = 'bball.match.v1';
+const LS_HISTORY = 'bball.history.v1';
 const $ = (s) => document.querySelector(s);
 const uid = () => Math.random().toString(36).slice(2, 9);
 const fmtClock = (ms) => {
@@ -22,6 +23,7 @@ const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
 let teams = load(LS_TEAMS, []);
 let match = load(LS_MATCH, null);
+let history = load(LS_HISTORY, []);
 let editingTeamId = null;
 let draftPlayers = [];
 let draftOpp = [];
@@ -30,6 +32,17 @@ let tickTimer = null;
 let tickN = 0;
 let wakeLock = null;
 let pendingSubId = null;
+let notesFilter = 'all';
+let selectedHistoryId = 'current';
+
+function saveHistoryMatch(m) {
+  if (!m || m.status !== 'finished') return;
+  const copy = structuredClone(m);
+  const idx = history.findIndex(h => h.id === m.id);
+  if (idx >= 0) history[idx] = copy;
+  else history.unshift(copy);
+  save(LS_HISTORY, history);
+}
 
 /* ---------- Screen Wake Lock ---------- */
 async function requestWakeLock() {
@@ -147,7 +160,8 @@ $('#btn-export-backup').onclick = () => {
     version: 1,
     exportedAt: new Date().toISOString(),
     teams: load(LS_TEAMS, []),
-    match: load(LS_MATCH, null)
+    match: load(LS_MATCH, null),
+    history: load(LS_HISTORY, [])
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -169,10 +183,10 @@ $('#backup-file-input').onchange = (e) => {
   reader.onload = (ev) => {
     try {
       const imported = JSON.parse(ev.target.result);
-      if (!imported || (!Array.isArray(imported.teams) && !imported.match)) {
+      if (!imported || (!Array.isArray(imported.teams) && !imported.match && !Array.isArray(imported.history))) {
         return toast('Archivo JSON no válido');
       }
-      if (!confirm('¿Restaurar copia de seguridad? Se reemplazarán los equipos y el partido actual.')) return;
+      if (!confirm('¿Restaurar copia de seguridad? Se reemplazarán los equipos, historial y partido actual.')) return;
       if (Array.isArray(imported.teams)) {
         teams = imported.teams;
         save(LS_TEAMS, teams);
@@ -181,10 +195,15 @@ $('#backup-file-input').onchange = (e) => {
         match = imported.match;
         save(LS_MATCH, match);
       }
+      if (Array.isArray(imported.history)) {
+        history = imported.history;
+        save(LS_HISTORY, history);
+      }
       ensureShape();
       renderTeams();
       renderSetup();
       renderLive();
+      renderSummary();
       updatePill();
       toast('¡Copia restaurada con éxito! 🏀');
     } catch (err) {
@@ -833,8 +852,26 @@ function paintNotePlayers() {
   s.value = cur0;
 }
 function paintNotes() {
-  const box = $('#notes-list'); box.innerHTML = '';
-  [...match.notes].reverse().forEach(n => {
+  const box = $('#notes-list');
+  if (!box || !match) return;
+  box.innerHTML = '';
+
+  const allNotes = match.notes || [];
+  const tacticalNotes = allNotes.filter(n => !n.text?.startsWith('🔄') && !n.text?.startsWith('⏱️'));
+  const subNotes = allNotes.filter(n => n.text?.startsWith('🔄'));
+  const tmNotes = allNotes.filter(n => n.text?.startsWith('⏱️'));
+
+  const cAll = $('#cnt-all'); if (cAll) cAll.textContent = allNotes.length;
+  const cTac = $('#cnt-tactical'); if (cTac) cTac.textContent = tacticalNotes.length;
+  const cSub = $('#cnt-subs'); if (cSub) cSub.textContent = subNotes.length;
+  const cTm = $('#cnt-tm'); if (cTm) cTm.textContent = tmNotes.length;
+
+  let displayNotes = allNotes;
+  if (notesFilter === 'tactical') displayNotes = tacticalNotes;
+  else if (notesFilter === 'subs') displayNotes = subNotes;
+  else if (notesFilter === 'tm') displayNotes = tmNotes;
+
+  [...displayNotes].reverse().forEach(n => {
     const pname = n.playerId ? playerById(n.playerId)?.name || '' : 'General';
     const isSub = n.text?.startsWith('🔄');
     const isTm = n.text?.startsWith('⏱️');
@@ -850,8 +887,24 @@ function paintNotes() {
     };
     box.appendChild(d);
   });
-  if (!match.notes.length) box.innerHTML = '<p class="hint">Sin notas ni eventos todavía.</p>';
+
+  if (!displayNotes.length) {
+    const emptyMsg = notesFilter === 'tactical' ? 'Sin notas tácticas.' :
+      notesFilter === 'subs' ? 'Sin cambios registrados.' :
+      notesFilter === 'tm' ? 'Sin tiempos muertos registrados.' :
+      'Sin notas ni eventos todavía.';
+    box.innerHTML = `<p class="hint">${emptyMsg}</p>`;
+  }
 }
+
+document.querySelectorAll('.btn-filter').forEach(b => {
+  b.addEventListener('click', () => {
+    notesFilter = b.dataset.filter || 'all';
+    document.querySelectorAll('.btn-filter').forEach(btn => btn.classList.toggle('is-active', btn === b));
+    paintNotes();
+  });
+});
+
 $('#btn-add-note').onclick = () => {
   const t = $('#note-text').value.trim();
   if (!t || !match) return;
@@ -865,59 +918,153 @@ $('#btn-finish').onclick = () => {
   pendingSubId = null;
   match.status = 'finished'; match.finishedAt = Date.now(); match.clockRunning = false;
   releaseWakeLock();
-  persist(); updatePill(); showView('summary'); toast('Partido finalizado 🏁');
+  saveHistoryMatch(match);
+  persist(); updatePill();
+  selectedHistoryId = 'current';
+  showView('summary'); toast('Partido finalizado 🏁');
 };
 
-/* ---------- RESUMEN ---------- */
+/* ---------- RESUMEN & HISTORIAL ---------- */
 function renderSummary() {
-  const box = $('#summary-body'); box.innerHTML = '';
-  if (!match || match.status !== 'finished') {
-    $('#summary-sub').textContent = match?.status === 'live' ? 'Hay un partido en curso — finalízalo para ver el resumen.' : 'Todavía no hay partido finalizado.';
+  const box = $('#summary-body');
+  const selCard = $('#history-selector-card');
+  const selBox = $('#history-select');
+  const btnDelHist = $('#btn-del-history');
+
+  const hasHistory = history.length > 0;
+  if (hasHistory || (match && match.status === 'live')) {
+    selCard.classList.remove('hidden');
+    let selHtml = '';
+    if (match) {
+      const tag = match.status === 'live' ? ' (en vivo)' : ' (actual)';
+      selHtml += `<option value="current">${esc(match.teamName)}${tag} · ${new Date(match.startedAt).toLocaleDateString('es-ES')}</option>`;
+    }
+    history.forEach(h => {
+      selHtml += `<option value="${h.id}">${esc(h.teamName)} · ${new Date(h.startedAt).toLocaleDateString('es-ES')} (${qLabel(h.quarter)})</option>`;
+    });
+    selBox.innerHTML = selHtml;
+    if (selectedHistoryId !== 'current' && !history.some(h => h.id === selectedHistoryId)) {
+      selectedHistoryId = match ? 'current' : (history[0]?.id || 'current');
+    }
+    selBox.value = selectedHistoryId;
+  } else {
+    selCard.classList.add('hidden');
+  }
+
+  let curM = null;
+  if (selectedHistoryId === 'current') {
+    curM = match;
+  } else {
+    curM = history.find(h => h.id === selectedHistoryId);
+  }
+
+  if (!curM || (curM === match && match.status !== 'finished')) {
+    $('#summary-sub').textContent = match?.status === 'live'
+      ? 'Hay un partido en curso — finalízalo para ver el resumen.'
+      : 'Todavía no hay ningún partido finalizado en el historial.';
+    box.innerHTML = '';
+    btnDelHist.classList.add('hidden');
     return;
   }
-  $('#summary-sub').textContent = `${match.teamName} · ${new Date(match.startedAt).toLocaleDateString('es-ES')} · ${qLabel(match.quarter)} jugados`;
-  const rows = [...match.roster].sort((a, b) => ((match.stats[b.id]?.total ?? match.stats[b.id]?.seconds) || 0) - ((match.stats[a.id]?.total ?? match.stats[a.id]?.seconds) || 0));
+
+  if (selectedHistoryId !== 'current' || (!match && curM)) {
+    btnDelHist.classList.remove('hidden');
+  } else {
+    btnDelHist.classList.add('hidden');
+  }
+
+  $('#summary-sub').textContent = `${curM.teamName} · ${new Date(curM.startedAt).toLocaleDateString('es-ES')} · ${qLabel(curM.quarter)} jugados`;
+
+  const rows = [...(curM.roster || [])].sort((a, b) => ((curM.stats[b.id]?.total ?? curM.stats[b.id]?.seconds) || 0) - ((curM.stats[a.id]?.total ?? curM.stats[a.id]?.seconds) || 0));
   let html = `<div class="card"><h2>Mi equipo · minutos y faltas</h2><table class="res">
     <tr><th>Dor</th><th>Jugadora</th><th>Min</th><th>Faltas</th></tr>`;
   rows.forEach(p => {
-    const st = match.stats[p.id] || { seconds: 0, total: 0, fouls: 0 };
+    const st = curM.stats[p.id] || { seconds: 0, total: 0, fouls: 0 };
     const total = st.total ?? st.seconds ?? 0;
     html += `<tr><td>#${esc(p.number)}</td><td>${esc(p.name)} ${st.fouls >= 5 ? '🚨' : ''}</td><td>${fmtPlayed(total)}</td><td>🔴 ${st.fouls}</td></tr>`;
   });
-  html += `</table><p class="hint">Faltas de equipo por cuarto: ${match.teamFouls.map((f, i) => qLabel(i + 1) + ': ' + f).join(' · ')}</p></div>`;
-  ensureShape();
-  html += `<div class="card"><h2>Rival · faltas</h2><p>${match.oppNumbers.map(n => '#' + esc(n) + ' (🔴' + (match.oppFouls[n] || 0) + ')').join(' · ') || '—'}</p><p class="hint">Faltas de equipo rival por cuarto: ${match.oppTeamFouls.map((f, i) => qLabel(i + 1) + ': ' + f).join(' · ')}</p></div>`;
+  html += `</table><p class="hint">Faltas de equipo por cuarto: ${(curM.teamFouls || []).map((f, i) => qLabel(i + 1) + ': ' + f).join(' · ')}</p></div>`;
 
-  const tmTeam = `1ª Parte: ${match.timeouts?.team?.h1 || 0}/2 · 2ª Parte: ${match.timeouts?.team?.h2 || 0}/3`;
-  const tmOpp = `1ª Parte: ${match.timeouts?.opp?.h1 || 0}/2 · 2ª Parte: ${match.timeouts?.opp?.h2 || 0}/3`;
+  html += `<div class="card"><h2>Rival · faltas</h2><p>${(curM.oppNumbers || []).map(n => '#' + esc(n) + ' (🔴' + (curM.oppFouls[n] || 0) + ')').join(' · ') || '—'}</p><p class="hint">Faltas de equipo rival por cuarto: ${(curM.oppTeamFouls || []).map((f, i) => qLabel(i + 1) + ': ' + f).join(' · ')}</p></div>`;
+
+  const tmTeam = `1ª Parte: ${curM.timeouts?.team?.h1 || 0}/2 · 2ª Parte: ${curM.timeouts?.team?.h2 || 0}/3`;
+  const tmOpp = `1ª Parte: ${curM.timeouts?.opp?.h1 || 0}/2 · 2ª Parte: ${curM.timeouts?.opp?.h2 || 0}/3`;
   html += `<div class="card"><h2>Tiempos Muertos y Posesión</h2>
     <p><strong>TM Mi equipo:</strong> ${tmTeam}</p>
     <p><strong>TM Rival:</strong> ${tmOpp}</p>
-    <p class="hint">Última flecha de posesión: ${match.possession === 'team' ? 'Mi equipo' : 'Rival'}</p>
+    <p class="hint">Última flecha de posesión: ${curM.possession === 'team' ? 'Mi equipo' : 'Rival'}</p>
   </div>`;
 
-  html += `<div class="card"><h2>Notas y eventos (${match.notes.length})</h2>` + (match.notes.map(n =>
-    `<p>• <strong>[${qLabel(n.quarter)} · ${esc(n.clock)}]</strong> ${esc(n.text)} <span class="hint">— ${n.playerId ? esc(playerById(n.playerId)?.name || '') : 'General'}</span></p>`
-  ).join('') || '<p class="hint">Sin notas ni eventos.</p>') + `</div>`;
-  box.innerHTML = html;
+  const allNotes = curM.notes || [];
+  const tacticalNotes = allNotes.filter(n => !n.text?.startsWith('🔄') && !n.text?.startsWith('⏱️'));
+  const eventNotes = allNotes.filter(n => n.text?.startsWith('🔄') || n.text?.startsWith('⏱️'));
+
+  let notesHtml = `<div class="card"><h2>Notas tácticas (${tacticalNotes.length})</h2>`;
+  if (tacticalNotes.length) {
+    notesHtml += tacticalNotes.map(n =>
+      `<p>• <strong>[${qLabel(n.quarter)} · ${esc(n.clock)}]</strong> ${esc(n.text)} <span class="hint">— ${n.playerId ? esc(playerById(n.playerId)?.name || '') : 'General'}</span></p>`
+    ).join('');
+  } else {
+    notesHtml += '<p class="hint">Sin notas tácticas en este partido.</p>';
+  }
+  notesHtml += `</div>`;
+
+  notesHtml += `<div class="card"><h2>Historial de cambios y TMs (${eventNotes.length})</h2>`;
+  if (eventNotes.length) {
+    notesHtml += eventNotes.map(n =>
+      `<p>• <strong>[${qLabel(n.quarter)} · ${esc(n.clock)}]</strong> ${esc(n.text)}</p>`
+    ).join('');
+  } else {
+    notesHtml += '<p class="hint">Sin eventos registrados.</p>';
+  }
+  notesHtml += `</div>`;
+
+  box.innerHTML = html + notesHtml;
 }
+
+$('#history-select').onchange = (e) => {
+  selectedHistoryId = e.target.value;
+  renderSummary();
+};
+
+$('#btn-del-history').onclick = () => {
+  if (selectedHistoryId === 'current') return;
+  if (!confirm('¿Eliminar este partido del historial? Esta acción no se puede deshacer.')) return;
+  history = history.filter(h => h.id !== selectedHistoryId);
+  save(LS_HISTORY, history);
+  selectedHistoryId = match ? 'current' : (history[0]?.id || 'current');
+  renderSummary();
+  toast('Partido eliminado del historial 🗑');
+};
+
 $('#btn-new-match').onclick = () => {
   if (match?.status === 'live' && !confirm('Hay un partido en vivo. ¿Descartarlo?')) return;
+  if (match?.status === 'finished') {
+    saveHistoryMatch(match);
+  }
   pendingSubId = null;
   releaseWakeLock();
-  match = null; persist(); renderLive(); updatePill(); showView('setup');
+  match = null; persist(); renderLive(); updatePill();
+  selectedHistoryId = history.length ? history[0].id : 'current';
+  showView('setup');
 };
+
 $('#btn-export').onclick = async () => {
-  if (!match) return toast('Nada que copiar');
-  const lines = [`BANQUILLO · ${match.teamName} · ${new Date(match.startedAt).toLocaleDateString('es-ES')}`, ''];
-  match.roster.forEach(p => { const s = match.stats[p.id]; const t = s.total ?? s.seconds ?? 0; lines.push(`#${p.number} ${p.name} — ${fmtPlayed(t)} — ${s.fouls} faltas`); });
-  lines.push('', 'Rival: ' + match.oppNumbers.map(n => `#${n} (${match.oppFouls[n] || 0})`).join(' '));
-  if (Array.isArray(match.oppTeamFouls)) lines.push('Equipo rival por cuarto: ' + match.oppTeamFouls.map((f, i) => qLabel(i + 1) + ': ' + f).join(' '));
-  lines.push('', `Tiempos Muertos Mi equipo: ${match.timeouts?.team?.h1 || 0}/2 (1ªP) · ${match.timeouts?.team?.h2 || 0}/3 (2ªP)`);
-  lines.push(`Tiempos Muertos Rival: ${match.timeouts?.opp?.h1 || 0}/2 (1ªP) · ${match.timeouts?.opp?.h2 || 0}/3 (2ªP)`);
-  lines.push(`Posesión: ${match.possession === 'team' ? 'Mi equipo' : 'Rival'}`);
-  lines.push('', 'Notas:');
-  match.notes.forEach(n => lines.push(`[${qLabel(n.quarter)} ${n.clock}] ${n.text}`));
+  const curM = (selectedHistoryId !== 'current' && history.find(h => h.id === selectedHistoryId)) || match;
+  if (!curM) return toast('Nada que copiar');
+  const lines = [`BANQUILLO · ${curM.teamName} · ${new Date(curM.startedAt).toLocaleDateString('es-ES')}`, ''];
+  (curM.roster || []).forEach(p => {
+    const s = curM.stats[p.id];
+    const t = s ? (s.total ?? s.seconds ?? 0) : 0;
+    lines.push(`#${p.number} ${p.name} — ${fmtPlayed(t)} — ${s?.fouls || 0} faltas`);
+  });
+  lines.push('', 'Rival: ' + (curM.oppNumbers || []).map(n => `#${n} (${curM.oppFouls[n] || 0})`).join(' '));
+  if (Array.isArray(curM.oppTeamFouls)) lines.push('Equipo rival por cuarto: ' + curM.oppTeamFouls.map((f, i) => qLabel(i + 1) + ': ' + f).join(' '));
+  lines.push('', `Tiempos Muertos Mi equipo: ${curM.timeouts?.team?.h1 || 0}/2 (1ªP) · ${curM.timeouts?.team?.h2 || 0}/3 (2ªP)`);
+  lines.push(`Tiempos Muertos Rival: ${curM.timeouts?.opp?.h1 || 0}/2 (1ªP) · ${curM.timeouts?.opp?.h2 || 0}/3 (2ªP)`);
+  lines.push(`Posesión: ${curM.possession === 'team' ? 'Mi equipo' : 'Rival'}`);
+  lines.push('', 'Notas y eventos:');
+  (curM.notes || []).forEach(n => lines.push(`[${qLabel(n.quarter)} ${n.clock}] ${n.text}`));
   try { await navigator.clipboard.writeText(lines.join('\n')); toast('Resumen copiado 📋'); }
   catch { toast('No se pudo copiar'); }
 };

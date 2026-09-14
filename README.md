@@ -11,6 +11,7 @@ manifest.webmanifest · sw.js · icons/
 ## Modelo de datos (localStorage)
 - `bball.teams.v1`: `[{id, name, players:[{id,name,number}], createdAt}]`
 - `bball.match.v1`: `{id, teamId, teamName, quarterLengthSec, quarter, clockRemainingMs, clockRunning, roster, onCourtIds[≤5], stats:{playerId:{seconds,total,stint,fouls}}, oppNumbers[], oppFouls:{}, teamFouls:[por cuarto], oppTeamFouls:[por cuarto], possession, timeouts:{team,opp}, notes:[{id,text,playerId,quarter,clock,createdAt}], status, startedAt, finishedAt}`
+- `bball.history.v1`: `[match1, match2, ...]` (partidos finalizados de la temporada)
 
 ## Probar en local
 ```bash
@@ -50,15 +51,17 @@ npx vercel --prod
 2. Funciona offline tras la primera carga.
 
 ## Uso en partido
-1. **Equipos & Backup**: crea tu equipo una vez (nombre + dorsales). Exporta o restaura copias de seguridad en JSON para no perder nada.
+1. **Equipos & Backup**: crea tu equipo una vez (nombre + dorsales). Exporta o restaura copias de seguridad en JSON para no perder nada (incluye histórico).
 2. **Partido**: elige equipo, marca convocadas, añade dorsales rivales, duración de cuarto (def. 10).
 3. **En vivo**:
    - **Screen Wake Lock**: la pantalla se mantiene encendida automáticamente mientras estés en la vista de partido en vivo.
-   - **Reloj y ajuste fino**: ▶ corre el crono y ajusta segundos con `−5s`, `−1s`, `+1s`, `+5s` según el marcador de mesa.
+   - **Reloj y ajuste fino**: ▶ corre el crono y ajusta segundos con `−5s`, `−1s`, `+1s`, `+5s` (sincroniza minutos de jugadoras en pista).
    - **Posesión**: toca el botón de posesión para alternar la flecha de salto alterno (◀ Nosotros / Rival ▶).
-   - **Tiempos Muertos FIBA**: casillas táctiles para registrar TMs pedidos (2 en 1ª parte, 3 en 2ª parte, 1 por prórroga) y añadir la nota automática con su reloj.
-   - **Pista y sustituciones**: toca tarjeta = pista/banquillo (máx. 5). Alertas cromáticas de racha/fatiga a los 4 y 7 minutos.
+   - **Tiempos Muertos FIBA**: casillas táctiles para registrar TMs pedidos (2 en 1ª parte, 3 en 2ª parte, 1 por prórroga) con notas automáticas sincronizadas.
+   - **Pista y sustituciones**: cambio directo "A por B", o clásico. Registro automático en notas y auto-deshacer en toques involuntarios.
    - **Faltas y Bonus**: `+F` suma falta individual y de equipo. Aviso a la 4ª falta, alerta y vibración a la 5ª (eliminada). Bonus FIBA a las 4 de equipo (`★ BONUS ★`).
-   - **Rival**: faltas individuales por dorsal y bonus rival.
-   - **Notas**: apuntes tácticos con timestamp automático de cuarto y reloj.
-4. **Resumen**: tabla minutos/faltas, tiempos muertos, posesión, faltas rival, notas y botón copiar al portapapeles.
+   - **Notas con filtro**: filtra al vuelo entre `Todas`, `🧠 Tácticas`, `🔄 Cambios` y `⏱️ TMs` para no perder notas importantes.
+4. **Resumen e Historial**:
+   - Selector de partidos archivados para consultar jornadas anteriores en cualquier momento.
+   - Desglose ordenado de minutos/faltas, notas tácticas y timeline de eventos.
+   - Botón para copiar resumen al portapapeles y opción de borrar partidos del historial.
