@@ -139,6 +139,37 @@
         </div>
         <div id="clock" class="clock">10:00</div>
         <div class="progress"><div id="progress-fill"></div></div>
+        <div class="scoreboard">
+          <div class="score-side">
+            <span class="score-label">NOSOTROS</span>
+            <strong id="score-team" class="score-num">0</strong>
+            <div class="score-btns">
+              <button id="btn-score-team-1" class="btn primary sm" type="button">+1</button>
+              <button id="btn-score-team-2" class="btn primary sm" type="button">+2</button>
+              <button id="btn-score-team-3" class="btn primary sm" type="button">+3</button>
+              <button id="btn-score-team-corr" class="btn ghost sm score-corr" type="button" title="Corregir: quita 1 punto a Nosotros">−1</button>
+            </div>
+          </div>
+          <div class="score-mid">
+            <span id="score-diff" class="score-diff">+0</span>
+            <span id="score-quarter" class="score-quarter">Q1 0-0</span>
+            <button id="btn-score-undo" class="btn ghost sm" type="button" title="Deshacer última canasta">↩</button>
+          </div>
+          <div class="score-side opp">
+            <span class="score-label">RIVAL</span>
+            <strong id="score-opp" class="score-num">0</strong>
+            <div class="score-btns">
+              <button id="btn-score-opp-1" class="btn warnbtn sm" type="button">+1</button>
+              <button id="btn-score-opp-2" class="btn warnbtn sm" type="button">+2</button>
+              <button id="btn-score-opp-3" class="btn warnbtn sm" type="button">+3</button>
+              <button id="btn-score-opp-corr" class="btn ghost sm score-corr" type="button" title="Corregir: quita 1 punto al Rival">−1</button>
+            </div>
+          </div>
+        </div>
+        <div class="score-log-wrap">
+          <div class="score-log-head"><span>Últimas canastas</span><span id="score-log-count" class="badge">0</span></div>
+          <div id="score-log" class="score-log"></div>
+        </div>
         <div class="clock-actions">
           <button id="btn-play" class="btn primary xl" type="button">▶</button>
           <button id="btn-pause" class="btn warnbtn" type="button">⏸</button>

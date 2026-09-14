@@ -278,11 +278,14 @@ $('#btn-start-match').onclick = () => {
     quarter: 1, clockRemainingMs: qSec * 1000, clockRunning: false, lastTick: null,
     roster: roster.map(p => ({ ...p })),
     onCourtIds: roster.slice(0, 5).map(p => p.id),
-    stats: Object.fromEntries(roster.map(p => [p.id, { seconds: 0, total: 0, stint: 0, fouls: 0 }])),
+    stats: Object.fromEntries(roster.map(p => [p.id, { seconds: 0, total: 0, stint: 0, fouls: 0, plusMinus: 0 }])),
     oppNumbers: [...draftOpp], oppFouls: Object.fromEntries(draftOpp.map(n => [n, 0])),
     teamFouls: [0], oppTeamFouls: [0],
     possession: 'team',
     timeouts: { team: { h1: 0, h2: 0, ot: {} }, opp: { h1: 0, h2: 0, ot: {} } },
+    score: { team: 0, opp: 0 },
+    scoreByQuarter: [{ team: 0, opp: 0 }],
+    scoreLog: [],
     notes: [], status: 'live', startedAt: Date.now(), finishedAt: null
   };
   save(LS_MATCH, match);
@@ -302,6 +305,16 @@ function ensureShape() {
   while (match.teamFouls.length < match.quarter) match.teamFouls.push(0);
   while (match.oppTeamFouls.length < match.quarter) match.oppTeamFouls.push(0);
   if (!match.possession) match.possession = 'team';
+  if (!match.score || typeof match.score.team !== 'number' || typeof match.score.opp !== 'number') {
+    match.score = { team: 0, opp: 0 };
+  }
+  if (!Array.isArray(match.scoreByQuarter)) match.scoreByQuarter = [];
+  while (match.scoreByQuarter.length < match.quarter) match.scoreByQuarter.push({ team: 0, opp: 0 });
+  match.scoreByQuarter.forEach(q => {
+    if (typeof q.team !== 'number') q.team = 0;
+    if (typeof q.opp !== 'number') q.opp = 0;
+  });
+  if (!Array.isArray(match.scoreLog)) match.scoreLog = [];
   if (!match.timeouts) match.timeouts = { team: { h1: 0, h2: 0, ot: {} }, opp: { h1: 0, h2: 0, ot: {} } };
   if (!match.timeouts.team) match.timeouts.team = { h1: 0, h2: 0, ot: {} };
   if (!match.timeouts.opp) match.timeouts.opp = { h1: 0, h2: 0, ot: {} };
@@ -309,12 +322,13 @@ function ensureShape() {
   if (typeof match.timeouts.opp.ot !== 'object' || match.timeouts.opp.ot === null) match.timeouts.opp.ot = {};
   const on = new Set(match.onCourtIds || []);
   (match.roster || []).forEach(p => {
-    if (!match.stats[p.id]) match.stats[p.id] = { seconds: 0, total: 0, stint: 0, fouls: 0 };
+    if (!match.stats[p.id]) match.stats[p.id] = { seconds: 0, total: 0, stint: 0, fouls: 0, plusMinus: 0 };
     const st = match.stats[p.id];
     if (st.total == null) st.total = st.seconds || 0;   // legacy: seconds era el total
     if (st.seconds == null) st.seconds = st.total || 0; // espejo para compatibilidad
     if (st.stint == null) st.stint = 0;                 // racha desconocida en partidos viejos → 0
     if (st.fouls == null) st.fouls = 0;
+    if (st.plusMinus == null) st.plusMinus = 0;
     if (!on.has(p.id)) st.stint = 0; // en banquillo nunca hay racha
   });
 }
@@ -357,7 +371,7 @@ function renderLive() {
   if (empty) { updatePill(); releaseWakeLock(); pendingSubId = null; return; }
   ensureShape();
   requestWakeLock();
-  paintClock(); paintPossession(); paintTimeouts(); paintPlayers(); paintOpp(); paintNotes(); paintNotePlayers();
+  paintClock(); paintScore(); paintPossession(); paintTimeouts(); paintPlayers(); paintOpp(); paintNotes(); paintNotePlayers();
   updatePill();
 }
 function paintClock() {
@@ -377,7 +391,145 @@ function paintClock() {
   $('#btn-play').textContent = match.clockRunning ? '⏳ corriendo…' : '▶';
   paintPossession();
   paintTimeouts();
+  paintScore();
 }
+
+/* ---------- MARCADOR + PLUS/MINUS ---------- */
+function paintScore() {
+  if (!match || !match.score) return;
+  const st = $('#score-team'), so = $('#score-opp');
+  if (st) st.textContent = match.score.team ?? 0;
+  if (so) so.textContent = match.score.opp ?? 0;
+  const diff = (match.score.team ?? 0) - (match.score.opp ?? 0);
+  const dEl = $('#score-diff');
+  if (dEl) {
+    dEl.textContent = (diff >= 0 ? '+' : '') + diff;
+    dEl.classList.toggle('lead', diff > 0);
+    dEl.classList.toggle('trail', diff < 0);
+  }
+  const qEl = $('#score-quarter');
+  if (qEl) {
+    const q = match.scoreByQuarter?.[match.quarter - 1] || { team: 0, opp: 0 };
+    qEl.textContent = qLabel(match.quarter) + ' ' + q.team + '-' + q.opp;
+  }
+  paintScoreLog();
+}
+function paintScoreLog() {
+  const box = $('#score-log');
+  if (!box || !match) return;
+  const cnt = $('#score-log-count');
+  const log = match.scoreLog || [];
+  if (cnt) cnt.textContent = log.length;
+  box.innerHTML = '';
+  if (!log.length) { box.innerHTML = '<span class="hint">Sin canastas todavía.</span>'; return; }
+  [...log].slice(-6).reverse().forEach(e => {
+    const d = document.createElement('div');
+    d.className = 'score-log-item' + (e.side === 'opp' ? ' opp' : '') + (e.points < 0 ? ' corr' : '');
+    const label = e.points < 0
+      ? `−1 corrección ${e.side === 'team' ? 'NOS' : 'RIV'}`
+      : `+${e.points} ${e.side === 'team' ? 'NOS' : 'RIV'}`;
+    d.innerHTML = `<span><strong>${label}</strong> <small>${qLabel(e.quarter)} · ${esc(e.clock || '')}</small></span><button class="btn ghost sm" title="Borrar esta canasta">×</button>`;
+    d.querySelector('button').onclick = () => removeBasketById(e.id);
+    box.appendChild(d);
+  });
+}
+function addBasket(side, pts) {
+  if (!match || match.status !== 'live') return;
+  ensureShape();
+  if (pts <= 0) return;
+  // Evitar marcador negativo en correcciones manuales (no aplica aquí, solo suma)
+  match.score[side] = (match.score[side] || 0) + pts;
+  const qi = match.quarter - 1;
+  match.scoreByQuarter[qi][side] = (match.scoreByQuarter[qi][side] || 0) + pts;
+  // Plus/Minus: las 5 en pista suman si anotamos, restan si encajan
+  const delta = side === 'team' ? pts : -pts;
+  const snapshot = [...match.onCourtIds];
+  snapshot.forEach(id => {
+    if (!match.stats[id]) match.stats[id] = { seconds: 0, total: 0, stint: 0, fouls: 0, plusMinus: 0 };
+    if (match.stats[id].plusMinus == null) match.stats[id].plusMinus = 0;
+    match.stats[id].plusMinus += delta;
+  });
+  match.scoreLog.push({
+    id: uid(), side, points: pts,
+    quarter: match.quarter, clock: fmtClock(match.clockRemainingMs),
+    onCourtIds: snapshot, createdAt: Date.now()
+  });
+  try { navigator.vibrate && navigator.vibrate(20); } catch {}
+  persist(); paintScore(); paintPlayers();
+}
+/* Corrección fina −1: p. ej. pulsaste +3 en vez de +2. Resta 1 al marcador
+   y ajusta el +/- del quinteto actual. Queda registrada en el log. */
+function correctScore(side) {
+  if (!match || match.status !== 'live') return;
+  ensureShape();
+  if ((match.score[side] || 0) <= 0) return toast('Marcador ya en 0');
+  match.score[side]--;
+  const qi = match.quarter - 1;
+  if (match.scoreByQuarter[qi]) match.scoreByQuarter[qi][side] = Math.max(0, (match.scoreByQuarter[qi][side] || 0) - 1);
+  const delta = side === 'team' ? -1 : 1;
+  const snapshot = [...match.onCourtIds];
+  snapshot.forEach(id => {
+    const s = match.stats[id];
+    if (s) {
+      if (s.plusMinus == null) s.plusMinus = 0;
+      s.plusMinus += delta;
+    }
+  });
+  match.scoreLog.push({
+    id: uid(), side, points: -1, isCorrection: true,
+    quarter: match.quarter, clock: fmtClock(match.clockRemainingMs),
+    onCourtIds: snapshot, createdAt: Date.now()
+  });
+  persist(); paintScore(); paintPlayers();
+  toast('Corrección −1 aplicada');
+}
+function revertBasketEntry(entry) {
+  // Revierte marcador + cuarto + Plus/Minus de quienes estaban en pista entonces.
+  // Funciona tanto para canastas (+1/+2/+3) como correcciones (−1).
+  match.score[entry.side] = Math.max(0, (match.score[entry.side] || 0) - entry.points);
+  const qi = (entry.quarter || 1) - 1;
+  if (match.scoreByQuarter[qi]) {
+    match.scoreByQuarter[qi][entry.side] = Math.max(0, (match.scoreByQuarter[qi][entry.side] || 0) - entry.points);
+  }
+  const delta = entry.side === 'team' ? -entry.points : entry.points;
+  (entry.onCourtIds || []).forEach(id => {
+    const s = match.stats[id];
+    if (s && s.plusMinus != null) s.plusMinus += delta;
+  });
+}
+function removeBasketById(id) {
+  if (!match || match.status !== 'live') return;
+  ensureShape();
+  const idx = (match.scoreLog || []).findIndex(e => e.id === id);
+  if (idx < 0) return;
+  const entry = match.scoreLog[idx];
+  if (!confirm(`¿Borrar ${entry.points < 0 ? 'corrección −1' : '+' + entry.points + ' ' + (entry.side === 'team' ? 'NOS' : 'RIV')} (${qLabel(entry.quarter)} ${entry.clock})?`)) return;
+  match.scoreLog.splice(idx, 1);
+  revertBasketEntry(entry);
+  persist(); paintScore(); paintPlayers();
+  toast('Canasta borrada');
+}
+function undoLastBasket() {
+  if (!match || match.status !== 'live') return;
+  ensureShape();
+  const last = (match.scoreLog || [])[match.scoreLog.length - 1];
+  if (!last) return toast('Sin canastas que deshacer');
+  match.scoreLog.pop();
+  revertBasketEntry(last);
+  persist(); paintScore(); paintPlayers();
+  toast('Canasta deshecha ↩');
+}
+['1', '2', '3'].forEach(v => {
+  const n = parseInt(v, 10);
+  $('#btn-score-team-' + v).onclick = () => { addBasket('team', n); toast(`+${n} Nosotros 🏀`); };
+  $('#btn-score-opp-' + v).onclick = () => { addBasket('opp', n); toast(`+${n} Rival 🏀`); };
+});
+$('#btn-score-team-corr').onclick = () => correctScore('team');
+$('#btn-score-opp-corr').onclick = () => correctScore('opp');
+$('#btn-score-undo').onclick = () => {
+  if (!confirm('¿Deshacer la última canasta?')) return;
+  undoLastBasket();
+};
 $('#btn-play').onclick = () => {
   if (!match || match.status !== 'live') return;
   if (match.clockRemainingMs <= 0) return toast('Cuarto a 0 — avanza de cuarto (▶) o resetea');
@@ -591,9 +743,12 @@ function paintPlayers() {
   const on = new Set(match.onCourtIds);
   $('#court-count').textContent = match.onCourtIds.length + '/5';
   const mk = (p, inCourt) => {
-    const st = match.stats[p.id] || { seconds: 0, total: 0, stint: 0, fouls: 0 };
+    const st = match.stats[p.id] || { seconds: 0, total: 0, stint: 0, fouls: 0, plusMinus: 0 };
     const total = st.total ?? st.seconds ?? 0;
     const stint = inCourt ? (st.stint ?? 0) : 0;
+    const pm = st.plusMinus ?? 0;
+    const pmCls = pm > 0 ? 'pos' : pm < 0 ? 'neg' : '';
+    const pmTxt = (pm > 0 ? '+' : '') + pm;
     const el = document.createElement('div');
     const subTargetCls = pendingSubId === p.id ? ' is-sub-target' : (pendingSubId && inCourt ? ' can-sub-out' : '');
     el.className = 'player-card' + (st.fouls >= 5 ? ' fouled-out' : st.fouls === 4 ? ' warning' : '') + subTargetCls;
@@ -601,8 +756,8 @@ function paintPlayers() {
     const status = inCourt ? (match.clockRunning ? '● en pista' : 'en pista') : 'banquillo';
     const stintCls = !inCourt ? '' : stint >= 7 * 60 ? 'crit' : stint >= 4 * 60 ? 'warn' : '';
     const timeLine = inCourt
-      ? `<small><span class="racha ${stintCls}"> ${fmtPlayed(stint)}</span> <span class="ptotal">(${fmtPlayed(total)} total)</span> · ${status}</small>`
-      : `<small><span class="ptotal">Σ ${fmtPlayed(total)} total</span> · ${status}</small>`;
+      ? `<small><span class="racha ${stintCls}"> ${fmtPlayed(stint)}</span> <span class="ptotal">(${fmtPlayed(total)} total)</span> · ${status} · <span class="pm-badge ${pmCls}" title="Plus/Minus">${pmTxt}</span></small>`
+      : `<small><span class="ptotal">Σ ${fmtPlayed(total)} total</span> · ${status} · <span class="pm-badge ${pmCls}" title="Plus/Minus">${pmTxt}</span></small>`;
     el.innerHTML = `
       <span class="dorsal">#${esc(p.number)}</span>
       <span class="pinfo"><strong>${esc(p.name)}</strong>
@@ -643,7 +798,7 @@ function toggleCourt(id) {
   if (!p) return;
   const nowMs = match.clockRemainingMs;
   const qNow = match.quarter;
-  const st = match.stats[id] || (match.stats[id] = { seconds: 0, total: 0, stint: 0, fouls: 0 });
+  const st = match.stats[id] || (match.stats[id] = { seconds: 0, total: 0, stint: 0, fouls: 0, plusMinus: 0 });
 
   // CASO 1: Hay una jugadora del banquillo esperando cambio directo (pendingSubId)
   if (pendingSubId) {
@@ -975,13 +1130,21 @@ function renderSummary() {
 
   $('#summary-sub').textContent = `${curM.teamName} · ${new Date(curM.startedAt).toLocaleDateString('es-ES')} · ${qLabel(curM.quarter)} jugados`;
 
-  const rows = [...(curM.roster || [])].sort((a, b) => ((curM.stats[b.id]?.total ?? curM.stats[b.id]?.seconds) || 0) - ((curM.stats[a.id]?.total ?? curM.stats[a.id]?.seconds) || 0));
-  let html = `<div class="card"><h2>Mi equipo · minutos y faltas</h2><table class="res">
-    <tr><th>Dor</th><th>Jugadora</th><th>Min</th><th>Faltas</th></tr>`;
+  const scT = curM.score?.team ?? 0, scO = curM.score?.opp ?? 0;
+  const scDiff = scT - scO;
+  let html = `<div class="card center"><h2>Marcador final</h2>
+    <div class="final-score"><span>NOS ${scT}</span><span class="final-diff">${scDiff >= 0 ? '+' : ''}${scDiff}</span><span>RIV ${scO}</span></div>
+    <p class="hint">Por cuarto: ${((curM.scoreByQuarter || []).map((q, i) => qLabel(i + 1) + ' ' + (q.team || 0) + '-' + (q.opp || 0)).join(' · ') || '—')}</p></div>`;
+
+  const rows = [...(curM.roster || [])].sort((a, b) => ((curM.stats[b.id]?.plusMinus ?? 0) - (curM.stats[a.id]?.plusMinus ?? 0)) || (((curM.stats[b.id]?.total ?? curM.stats[b.id]?.seconds) || 0) - (((curM.stats[a.id]?.total ?? curM.stats[a.id]?.seconds) || 0))));
+  html += `<div class="card"><h2>Mi equipo · minutos, faltas y +/−</h2><table class="res">
+    <tr><th>Dor</th><th>Jugadora</th><th>Min</th><th>+/-</th><th>Faltas</th></tr>`;
   rows.forEach(p => {
-    const st = curM.stats[p.id] || { seconds: 0, total: 0, fouls: 0 };
+    const st = curM.stats[p.id] || { seconds: 0, total: 0, fouls: 0, plusMinus: 0 };
     const total = st.total ?? st.seconds ?? 0;
-    html += `<tr><td>#${esc(p.number)}</td><td>${esc(p.name)} ${st.fouls >= 5 ? '🚨' : ''}</td><td>${fmtPlayed(total)}</td><td>🔴 ${st.fouls}</td></tr>`;
+    const pm = st.plusMinus ?? 0;
+    const pmTxt = (pm > 0 ? '+' : '') + pm;
+    html += `<tr><td>#${esc(p.number)}</td><td>${esc(p.name)} ${st.fouls >= 5 ? '🚨' : ''}</td><td>${fmtPlayed(total)}</td><td><strong>${pmTxt}</strong></td><td>🔴 ${st.fouls}</td></tr>`;
   });
   html += `</table><p class="hint">Faltas de equipo por cuarto: ${(curM.teamFouls || []).map((f, i) => qLabel(i + 1) + ': ' + f).join(' · ')}</p></div>`;
 
@@ -1019,7 +1182,18 @@ function renderSummary() {
   }
   notesHtml += `</div>`;
 
-  box.innerHTML = html + notesHtml;
+  const scoreLog = curM.scoreLog || [];
+  let scoreHtml = `<div class="card"><h2>Canastas (${scoreLog.length})</h2>`;
+  if (scoreLog.length) {
+    scoreHtml += scoreLog.map(e =>
+      `<p>• <strong>[${qLabel(e.quarter)} · ${esc(e.clock || '')}]</strong> ${e.points < 0 ? '−1 corrección' : '+' + e.points} ${e.side === 'team' ? 'NOS' : 'RIV'}</p>`
+    ).join('');
+  } else {
+    scoreHtml += '<p class="hint">Sin canastas registradas.</p>';
+  }
+  scoreHtml += `</div>`;
+
+  box.innerHTML = html + notesHtml + scoreHtml;
 }
 
 $('#history-select').onchange = (e) => {
@@ -1053,16 +1227,24 @@ $('#btn-export').onclick = async () => {
   const curM = (selectedHistoryId !== 'current' && history.find(h => h.id === selectedHistoryId)) || match;
   if (!curM) return toast('Nada que copiar');
   const lines = [`BANQUILLO · ${curM.teamName} · ${new Date(curM.startedAt).toLocaleDateString('es-ES')}`, ''];
-  (curM.roster || []).forEach(p => {
+  lines.push(`MARCADOR: NOS ${curM.score?.team ?? 0} - ${curM.score?.opp ?? 0} RIV`);
+  if (Array.isArray(curM.scoreByQuarter)) lines.push('Por cuarto: ' + curM.scoreByQuarter.map((q, i) => qLabel(i + 1) + ' ' + (q.team || 0) + '-' + (q.opp || 0)).join(' '));
+  lines.push('');
+  [...(curM.roster || [])].sort((a, b) => ((curM.stats[b.id]?.plusMinus ?? 0) - (curM.stats[a.id]?.plusMinus ?? 0))).forEach(p => {
     const s = curM.stats[p.id];
     const t = s ? (s.total ?? s.seconds ?? 0) : 0;
-    lines.push(`#${p.number} ${p.name} — ${fmtPlayed(t)} — ${s?.fouls || 0} faltas`);
+    const pm = s?.plusMinus ?? 0;
+    lines.push(`#${p.number} ${p.name} — ${fmtPlayed(t)} — ${pm >= 0 ? '+' : ''}${pm} — ${s?.fouls || 0} faltas`);
   });
   lines.push('', 'Rival: ' + (curM.oppNumbers || []).map(n => `#${n} (${curM.oppFouls[n] || 0})`).join(' '));
   if (Array.isArray(curM.oppTeamFouls)) lines.push('Equipo rival por cuarto: ' + curM.oppTeamFouls.map((f, i) => qLabel(i + 1) + ': ' + f).join(' '));
   lines.push('', `Tiempos Muertos Mi equipo: ${curM.timeouts?.team?.h1 || 0}/2 (1ªP) · ${curM.timeouts?.team?.h2 || 0}/3 (2ªP)`);
   lines.push(`Tiempos Muertos Rival: ${curM.timeouts?.opp?.h1 || 0}/2 (1ªP) · ${curM.timeouts?.opp?.h2 || 0}/3 (2ªP)`);
   lines.push(`Posesión: ${curM.possession === 'team' ? 'Mi equipo' : 'Rival'}`);
+  if ((curM.scoreLog || []).length) {
+    lines.push('', 'Canastas:');
+    (curM.scoreLog || []).forEach(e => lines.push(`[${qLabel(e.quarter)} ${e.clock || ''}] ${e.points < 0 ? '−1 corrección' : '+' + e.points} ${e.side === 'team' ? 'NOS' : 'RIV'}`));
+  }
   lines.push('', 'Notas y eventos:');
   (curM.notes || []).forEach(n => lines.push(`[${qLabel(n.quarter)} ${n.clock}] ${n.text}`));
   try { await navigator.clipboard.writeText(lines.join('\n')); toast('Resumen copiado 📋'); }
