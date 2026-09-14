@@ -1,5 +1,5 @@
 /* Banquillo SW — cache-first, offline total */
-const CACHE = 'banquillo-v14';
+const CACHE = 'banquillo-v15';
 const ASSETS = [
   './', './index.html', './styles.css', './app.js',
   './manifest.webmanifest', './icons/icon.svg',

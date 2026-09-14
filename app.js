@@ -76,6 +76,7 @@ function showView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('is-active', v.id === 'view-' + name));
   if (name === 'summary') renderSummary();
   if (name === 'setup') renderSetup();
+  if (name === 'live') renderLive();
   if (name === 'live' && match?.status === 'live') requestWakeLock();
   else releaseWakeLock();
   window.scrollTo({ top: 0 });
@@ -552,7 +553,8 @@ $('#btn-play').onclick = () => {
 };
 $('#btn-pause').onclick = () => { if (match) { match.clockRunning = false; persist(); paintClock(); } };
 $('#btn-clock-reset').onclick = () => {
-  if (!match || !confirm('¿Resetear el reloj de este cuarto?')) return;
+  if (!match || !confirm('¿Resetear reloj, minutos y puntos de este cuarto?')) return;
+  ensureShape();
   pendingSubId = null;
   match.clockRunning = false;
   const maxMs = match.quarterLengthSec * 1000;
@@ -568,7 +570,15 @@ $('#btn-clock-reset').onclick = () => {
       st.seconds = st.total;
     });
   }
-  match.clockRemainingMs = maxMs; persist(); paintClock(); paintPlayers();
+  // Restaurar puntos: quitar las canastas de este cuarto y devolver el +/-
+  // a quienes estaban en pista en cada canasta.
+  const q = match.quarter;
+  const removed = (match.scoreLog || []).filter(e => e.quarter === q);
+  removed.forEach(e => revertBasketEntry(e));
+  match.scoreLog = (match.scoreLog || []).filter(e => e.quarter !== q);
+  if (match.scoreByQuarter[q - 1]) match.scoreByQuarter[q - 1] = { team: 0, opp: 0 };
+  match.clockRemainingMs = maxMs; persist(); paintClock(); paintScore(); paintPlayers();
+  toast(removed.length ? `Cuarto reseteado · ${removed.length} canasta(s) anulada(s)` : 'Cuarto reseteado');
 };
 function adjustClock(deltaSec) {
   if (!match || match.status !== 'live') return;
@@ -1107,7 +1117,7 @@ $('#btn-finish').onclick = () => {
   match.status = 'finished'; match.finishedAt = Date.now(); match.clockRunning = false;
   releaseWakeLock();
   saveHistoryMatch(match);
-  persist(); updatePill();
+  persist(); updatePill(); renderLive();
   selectedHistoryId = 'current';
   showView('summary'); toast('Partido finalizado 🏁');
 };
