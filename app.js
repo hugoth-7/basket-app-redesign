@@ -467,31 +467,35 @@ function addBasket(side, pts) {
   try { navigator.vibrate && navigator.vibrate(20); } catch {}
   persist(); paintScore(); paintPlayers();
 }
-/* Corrección fina −1: p. ej. pulsaste +3 en vez de +2. Resta 1 al marcador
-   y ajusta el +/- del quinteto actual. Queda registrada en el log. */
+/* Corrección fina −1: p. ej. pulsaste +3 en vez de +2.
+   Resta 1 punto a la ÚLTIMA canasta de ese lado (aunque sea de otro cuarto)
+   y ajusta el +/- de quienes estaban en pista ENTONCES, no del quinteto actual. */
 function correctScore(side) {
   if (!match || match.status !== 'live') return;
   ensureShape();
-  if ((match.score[side] || 0) <= 0) return toast('Marcador ya en 0');
-  match.score[side]--;
-  const qi = match.quarter - 1;
-  if (match.scoreByQuarter[qi]) match.scoreByQuarter[qi][side] = Math.max(0, (match.scoreByQuarter[qi][side] || 0) - 1);
-  const delta = side === 'team' ? -1 : 1;
-  const snapshot = [...match.onCourtIds];
-  snapshot.forEach(id => {
-    const s = match.stats[id];
-    if (s) {
-      if (s.plusMinus == null) s.plusMinus = 0;
-      s.plusMinus += delta;
+  for (let i = (match.scoreLog || []).length - 1; i >= 0; i--) {
+    const e = match.scoreLog[i];
+    if (e.side === side && (e.points || 0) > 0) {
+      e.points -= 1;
+      match.score[side] = Math.max(0, (match.score[side] || 0) - 1);
+      const qi = (e.quarter || 1) - 1;
+      if (match.scoreByQuarter[qi]) match.scoreByQuarter[qi][side] = Math.max(0, (match.scoreByQuarter[qi][side] || 0) - 1);
+      // Devolver el +/- a las que estaban en pista en esa canasta
+      const delta = side === 'team' ? -1 : 1;
+      (e.onCourtIds || []).forEach(id => {
+        const s = match.stats[id];
+        if (s) {
+          if (s.plusMinus == null) s.plusMinus = 0;
+          s.plusMinus += delta;
+        }
+      });
+      if (e.points === 0) match.scoreLog.splice(i, 1); // +1 corregido a 0 → se elimina la entrada
+      persist(); paintScore(); paintPlayers();
+      toast(`Corrección −1 (${side === 'team' ? 'NOS' : 'RIV'} ${qLabel(e.quarter)})`);
+      return;
     }
-  });
-  match.scoreLog.push({
-    id: uid(), side, points: -1, isCorrection: true,
-    quarter: match.quarter, clock: fmtClock(match.clockRemainingMs),
-    onCourtIds: snapshot, createdAt: Date.now()
-  });
-  persist(); paintScore(); paintPlayers();
-  toast('Corrección −1 aplicada');
+  }
+  toast('No hay canastas de ese lado para corregir');
 }
 function revertBasketEntry(entry) {
   // Revierte marcador + cuarto + Plus/Minus de quienes estaban en pista entonces.
