@@ -1280,10 +1280,14 @@ $('#btn-del-history').onclick = () => {
 };
 
 $('#btn-clear-history').onclick = () => {
-  if (!history.length) return;
-  if (!confirm(`¿Vaciar todo el historial (${history.length} partido(s))? Esta acción no se puede deshacer.`)) return;
+  if (!history.length && !match) return;
+  const avisoLive = match?.status === 'live' ? ' Hay un partido en vivo que también se descartará.' : ' También se descartará el partido actual.';
+  if (!confirm(`¿Vaciar todo el historial (${history.length} partido(s))?${avisoLive} Esta acción no se puede deshacer.`)) return;
   history = [];
   save(LS_HISTORY, history);
+  pendingSubId = null;
+  releaseWakeLock();
+  match = null; persist(); renderLive(); updatePill();
   selectedHistoryId = 'current';
   renderSummary();
   toast('Historial vaciado 🧹');
