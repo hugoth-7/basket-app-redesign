@@ -399,7 +399,9 @@ function paintClock() {
   if (otfNum) otfNum.textContent = otf;
   const ob = $('#opp-bonus-pill');
   if (ob) { ob.classList.toggle('on', otf >= 4); ob.textContent = otf >= 4 ? '★ BONUS ★' : 'BONUS (4)'; }
-  $('#btn-play').textContent = match.clockRunning ? '⏳ corriendo…' : '▶';
+  const bp = $('#btn-play');
+  // Texto fijo para que el botón no cambie de tamaño; el estado se ve por el brillo.
+  if (bp) { bp.textContent = '▶'; bp.classList.toggle('is-running', !!match.clockRunning); }
   paintPossession();
   paintTimeouts();
   paintScore();
@@ -1060,6 +1062,7 @@ function paintNotes() {
   const tmNotes = allNotes.filter(n => n.text?.startsWith('⏱️'));
 
   const cAll = $('#cnt-all'); if (cAll) cAll.textContent = allNotes.length;
+  const nCount = $('#notes-count'); if (nCount) nCount.textContent = allNotes.length;
   const cTac = $('#cnt-tactical'); if (cTac) cTac.textContent = tacticalNotes.length;
   const cSub = $('#cnt-subs'); if (cSub) cSub.textContent = subNotes.length;
   const cTm = $('#cnt-tm'); if (cTm) cTm.textContent = tmNotes.length;
@@ -1111,6 +1114,15 @@ $('#btn-add-note').onclick = () => {
 };
 $('#note-text').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btn-add-note').click(); });
 
+/* Panel secundario: notas + ajuste fino + últimas canastas (solo layout board) */
+function setNotesSheet(open) {
+  const sh = $('#notes-sheet');
+  if (sh) sh.classList.toggle('hidden', !open);
+}
+$('#btn-open-notes').onclick = () => setNotesSheet(true);
+$('#btn-close-notes').onclick = () => setNotesSheet(false);
+document.querySelector('[data-close-notes]')?.addEventListener('click', () => setNotesSheet(false));
+
 $('#btn-finish').onclick = () => {
   if (!match || !confirm('¿Finalizar el partido y ver el resumen?')) return;
   pendingSubId = null;
@@ -1119,6 +1131,7 @@ $('#btn-finish').onclick = () => {
   saveHistoryMatch(match);
   persist(); updatePill(); renderLive();
   selectedHistoryId = 'current';
+  setNotesSheet(false);
   showView('summary'); toast('Partido finalizado 🏁');
 };
 

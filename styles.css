@@ -180,3 +180,99 @@ table.res th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-s
   background:#0e1524;border:1px solid var(--hot);padding:12px 18px;border-radius:999px;opacity:0;transition:.25s;z-index:9;font-weight:700}
 .toast.show{opacity:1;transform:translateX(-50%)}
 .danger-zone{border-color:var(--red)}
+
+/* ===== Experimental: board en vivo 3 columnas (iPad horizontal, sin scroll) ===== */
+/* Móvil / retrato: se mantiene el apilado con scroll actual. El board solo existe en landscape ≥1024px. */
+.live-board{display:contents}
+.board-team{min-width:0}
+.board-center{min-width:0}
+.board-opp{min-width:0}
+.bench-sep{display:flex;align-items:center;gap:8px;margin:10px 0 6px;color:var(--muted);
+  font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}
+.bench-sep::before,.bench-sep::after{content:"";flex:1;height:1px;background:var(--line)}
+.center-links{display:flex;gap:8px;margin-top:10px}
+.center-links .btn{flex:1}
+.opp-teamfouls{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;
+  background:#0d1320;border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-bottom:8px;font-size:14px}
+/* Sheet secundario: notas + ajuste fino + últimas canastas */
+.sheet{position:fixed;inset:0;z-index:30}
+.sheet-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.62)}
+.sheet-panel{position:absolute;left:50%;transform:translateX(-50%);top:6%;bottom:0;width:min(700px,94vw);
+  overflow-y:auto;background:var(--bg2);border:1px solid var(--line);border-bottom:none;
+  border-radius:18px 18px 0 0;padding:14px}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.sheet-adjust{justify-content:flex-start;background:#0d1320;border:1px solid var(--line);
+  border-radius:12px;padding:10px;margin-top:10px}
+
+@media (min-width:1024px) and (orientation:landscape){
+  #app{max-width:1400px}
+  /* Altura fija de viewport: sin scroll en la vista de partido */
+  #view-live.is-active{display:flex;flex-direction:column;height:calc(100dvh - 132px);min-height:560px;overflow:hidden}
+  #view-live.is-active #live-body:not(.hidden){display:flex;flex-direction:column;flex:1;min-height:0}
+  #view-live.is-active .live-board{flex:1;min-height:0;display:grid;gap:10px;
+    grid-template-columns:minmax(0,1.28fr) minmax(0,1fr) minmax(0,.78fr);
+    grid-template-rows:minmax(0,1fr)}
+  #view-live.is-active .board-team{grid-column:1;grid-row:1}
+  #view-live.is-active .board-center{grid-column:2;grid-row:1}
+  #view-live.is-active .board-opp{grid-column:3;grid-row:1}
+  #view-live.is-active .board-team,
+  #view-live.is-active .board-center,
+  #view-live.is-active .board-opp{margin:0;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  #view-live.is-active .board-team h2,
+  #view-live.is-active .board-opp h2{flex:none}
+  #view-live.is-active #court-list,
+  #view-live.is-active #bench-list{flex:none;overflow:hidden}
+  #view-live.is-active #opp-live-list{overflow:hidden}
+  /* Filas compactas: 12 jugadoras sin scroll */
+  #view-live.is-active .board-team .stack.tight{gap:5px}
+  #view-live.is-active .board-team .player-card{padding:5px 8px;gap:8px;border-radius:11px}
+  #view-live.is-active .board-team .dorsal{min-width:38px;height:38px;font-size:18px;border-radius:10px}
+  #view-live.is-active .board-team .pinfo{min-width:0}
+  #view-live.is-active .board-team .pinfo strong{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #view-live.is-active .board-team .pinfo small{display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* En el board la fila entera es el interruptor pista/banquillo: +F y −F visibles, ⇄ oculto */
+  #view-live.is-active .board-team .foul-btns [data-a="sub"]{display:none}
+  #view-live.is-active .board-team .pm-badge{font-size:11px;padding:0 6px}
+  #view-live.is-active .board-team .foul-btns .btn{min-height:36px;padding:6px 10px;font-size:14px}
+  #view-live.is-active .board-team .foul-btns [data-a="minus"]{opacity:.75;padding:6px 8px}
+  #view-live.is-active .board-team .foul-badge{padding:4px 8px;font-size:13px}
+  /* Pista vs banquillo: color y borde, no solo texto */
+  #view-live.is-active #court-list .player-card{background:linear-gradient(180deg,#232f47,#1a2334);
+    border-color:var(--hot);border-left:5px solid var(--hot);box-shadow:0 0 12px rgba(255,107,26,.18)}
+  #view-live.is-active #bench-list .player-card{background:#0d1320;border-left:5px solid var(--line);opacity:.92}
+  #view-live.is-active .bench-sep{margin:7px 0 4px}
+  /* Centro compacto, números grandes, bloque centrado verticalmente */
+  #view-live.is-active .board-center{padding:10px;text-align:center;justify-content:center}
+  #view-live.is-active .board-center .clock{font-size:clamp(54px,6.5vw,78px);margin:2px 0}
+  #view-live.is-active .board-center .scoreboard{padding:8px;margin-top:8px}
+  #view-live.is-active .board-center .score-num{font-size:34px}
+  #view-live.is-active .board-center .score-btns .btn{min-height:38px;padding:7px 10px;font-size:14px}
+  #view-live.is-active .board-center .score-btns .score-corr{min-height:32px;padding:4px 9px;font-size:12px}
+  #view-live.is-active .board-center .clock-actions{margin-top:8px}
+  #view-live.is-active .board-center .clock-actions .btn{min-height:46px;padding:10px;font-size:16px}
+  /* Play con tamaño fijo: el estado se indica con color, no con texto */
+  #view-live.is-active #btn-play{white-space:nowrap;overflow:hidden}
+  #view-live.is-active #btn-play.is-running{box-shadow:0 0 14px rgba(255,154,61,.65);filter:saturate(1.2)}
+  #view-live.is-active .board-center .board-adjust{margin-top:6px;gap:5px}
+  #view-live.is-active .board-center .board-adjust .btn{min-height:32px;padding:4px 10px;font-size:13px;border-radius:9px}
+  #view-live.is-active .board-center .teamfouls{margin-top:8px;font-size:13.5px}
+  #view-live.is-active .board-center .timeouts-bar{margin-top:8px;padding-top:8px}
+  #view-live.is-active .board-center .to-dot{width:24px;height:24px}
+  #view-live.is-active .board-center .center-links{margin-top:10px;padding-top:0}
+  #view-live.is-active .board-center .center-links .btn{min-height:52px;font-size:16px}
+  /* Rival compacto en una columna */
+  #view-live.is-active .board-opp .opp-grid{display:flex;flex-direction:column;gap:4px}
+  #view-live.is-active .board-opp .opp-card{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:9px;text-align:left}
+  #view-live.is-active .board-opp .opp-card strong{font-size:15px;min-width:38px}
+  #view-live.is-active .board-opp .opp-card .foul-badge{margin-left:auto;padding:3px 8px;font-size:12px}
+  #view-live.is-active .board-opp .opp-card .foul-btns{margin-top:0!important;gap:4px}
+  #view-live.is-active .board-opp .opp-card .foul-btns .btn{min-height:28px;padding:2px 8px;font-size:12px}
+  #view-live.is-active .board-opp .opp-teamfouls{font-size:13px;padding:6px 8px}
+}
+/* iPad 9,7" / 10,2" (1024–1180px): modo apretado */
+@media (min-width:1024px) and (max-width:1180px) and (orientation:landscape){
+  #view-live.is-active .board-center .clock{font-size:54px}
+  #view-live.is-active .board-center .score-num{font-size:30px}
+  #view-live.is-active .board-team .pinfo strong{font-size:12.5px}
+  #view-live.is-active .board-team .dorsal{min-width:34px;height:34px;font-size:16px}
+}

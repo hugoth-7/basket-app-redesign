@@ -124,7 +124,8 @@
     </div>
 
     <div id="live-body" class="hidden">
-      <div class="card clock-card">
+      <div class="live-board">
+      <div class="card clock-card board-center">
         <div class="clock-top">
           <div class="q-selector">
             <button id="btn-q-prev" class="btn ghost sm" type="button">◀</button>
@@ -166,17 +167,12 @@
             </div>
           </div>
         </div>
-        <div class="score-log-wrap">
-          <div class="score-log-head"><span>Últimas canastas</span><span id="score-log-count" class="badge">0</span></div>
-          <div id="score-log" class="score-log"></div>
-        </div>
         <div class="clock-actions">
           <button id="btn-play" class="btn primary xl" type="button">▶</button>
           <button id="btn-pause" class="btn warnbtn" type="button">⏸</button>
           <button id="btn-clock-reset" class="btn ghost" type="button">↺ cuarto</button>
         </div>
-        <div class="clock-adjust">
-          <span class="adjust-label">Ajuste reloj:</span>
+        <div class="clock-adjust board-adjust">
           <button id="btn-adj-m5" class="btn ghost sm" type="button" title="Restar 5 segundos">−5s</button>
           <button id="btn-adj-m1" class="btn ghost sm" type="button" title="Restar 1 segundo">−1s</button>
           <button id="btn-adj-p1" class="btn ghost sm" type="button" title="Sumar 1 segundo">+1s</button>
@@ -200,53 +196,61 @@
             <div id="to-dots-opp" class="to-dots"></div>
           </div>
         </div>
-      </div>
-
-      <div class="live-grid">
-        <div class="card">
-          <h2>En pista <span id="court-count" class="badge hot">0/5</span></h2>
-          <div id="court-list" class="stack tight"></div>
-        </div>
-        <div class="card">
-          <h2>Banquillo</h2>
-          <div id="bench-list" class="stack tight"></div>
+        <div class="center-links">
+          <button id="btn-open-notes" class="btn ghost sm" type="button">✎ Notas (<span id="notes-count">0</span>)</button>
+          <button id="btn-finish" class="btn primary sm" type="button">🏁 Finalizar</button>
         </div>
       </div>
 
-      <div class="card">
-        <h2>Rival · faltas por dorsal</h2>
-        <div class="teamfouls">
-          <span>Faltas equipo rival este cuarto: <strong id="opp-team-fouls-num">0</strong></span>
+      <section class="card board-team">
+        <h2>Mi equipo <span id="court-count" class="badge hot">0/5</span></h2>
+        <div id="court-list" class="stack tight"></div>
+        <div class="bench-sep"><span>Banquillo</span></div>
+        <div id="bench-list" class="stack tight"></div>
+      </section>
+
+      <section class="card board-opp">
+        <h2>Rival</h2>
+        <div class="opp-teamfouls">
+          <span>Faltas eq. <strong id="opp-team-fouls-num">0</strong>/4</span>
           <div class="mini-step">
             <button id="btn-otf-minus" class="btn ghost sm" type="button">−</button>
-            <button id="btn-otf-plus" class="btn primary sm" type="button">+ Falta equipo</button>
-            <div id="opp-bonus-pill" class="bonus-pill">BONUS (4)</div>
+            <button id="btn-otf-plus" class="btn primary sm" type="button">+ Eq.</button>
           </div>
+          <div id="opp-bonus-pill" class="bonus-pill">BONUS (4)</div>
         </div>
         <div id="opp-live-list" class="opp-grid"></div>
+      </section>
       </div>
 
-      <div class="card">
-        <h2>Notas rápidas</h2>
-        <div class="row-2">
-          <input id="note-text" type="text" placeholder="Ej. cerrar rebote, cambiar bloqueo…" maxlength="140" autocomplete="off">
-        </div>
-        <div class="row-2">
-          <select id="note-player"><option value="">General</option></select>
-          <button id="btn-add-note" class="btn primary" type="button">＋ Nota</button>
-        </div>
-        <div class="notes-filter-bar">
-          <button type="button" class="btn-filter is-active" data-filter="all">Todas (<span id="cnt-all">0</span>)</button>
-          <button type="button" class="btn-filter" data-filter="tactical">🧠 Tácticas (<span id="cnt-tactical">0</span>)</button>
-          <button type="button" class="btn-filter" data-filter="subs">🔄 Cambios (<span id="cnt-subs">0</span>)</button>
-          <button type="button" class="btn-filter" data-filter="tm">⏱️ TMs (<span id="cnt-tm">0</span>)</button>
-        </div>
-        <div id="notes-list" class="stack tight"></div>
-      </div>
-
-      <div class="card danger-zone">
-        <div class="actions">
-          <button id="btn-finish" class="btn primary xl" type="button">🏁 Finalizar partido</button>
+      <div id="notes-sheet" class="sheet hidden" role="dialog" aria-label="Notas y ajustes">
+        <div class="sheet-backdrop" data-close-notes></div>
+        <div class="sheet-panel">
+          <div class="sheet-head">
+            <strong>Notas y últimas canastas</strong>
+            <button id="btn-close-notes" class="btn ghost sm" type="button">✕ Cerrar</button>
+          </div>
+          <div class="card">
+            <h2>Notas rápidas</h2>
+            <div class="row-2">
+              <input id="note-text" type="text" placeholder="Ej. cerrar rebote, cambiar bloqueo…" maxlength="140" autocomplete="off">
+            </div>
+            <div class="row-2">
+              <select id="note-player"><option value="">General</option></select>
+              <button id="btn-add-note" class="btn primary" type="button">＋ Nota</button>
+            </div>
+            <div class="notes-filter-bar">
+              <button type="button" class="btn-filter is-active" data-filter="all">Todas (<span id="cnt-all">0</span>)</button>
+              <button type="button" class="btn-filter" data-filter="tactical">🧠 Tácticas (<span id="cnt-tactical">0</span>)</button>
+              <button type="button" class="btn-filter" data-filter="subs">🔄 Cambios (<span id="cnt-subs">0</span>)</button>
+              <button type="button" class="btn-filter" data-filter="tm">⏱️ TMs (<span id="cnt-tm">0</span>)</button>
+            </div>
+            <div id="notes-list" class="stack tight"></div>
+          </div>
+          <div class="score-log-wrap">
+            <div class="score-log-head"><span>Últimas canastas</span><span id="score-log-count" class="badge">0</span></div>
+            <div id="score-log" class="score-log"></div>
+          </div>
         </div>
       </div>
     </div>
