@@ -1144,6 +1144,8 @@ function renderSummary() {
   const selCard = $('#history-selector-card');
   const selBox = $('#history-select');
   const btnDelHist = $('#btn-del-history');
+  const btnClearHist = $('#btn-clear-history');
+  if (btnClearHist) btnClearHist.classList.toggle('hidden', !history.length);
 
   const hasHistory = history.length > 0;
   if (hasHistory || (match && match.status === 'live')) {
@@ -1275,6 +1277,16 @@ $('#btn-del-history').onclick = () => {
   selectedHistoryId = match ? 'current' : (history[0]?.id || 'current');
   renderSummary();
   toast('Partido eliminado del historial 🗑');
+};
+
+$('#btn-clear-history').onclick = () => {
+  if (!history.length) return;
+  if (!confirm(`¿Vaciar todo el historial (${history.length} partido(s))? Esta acción no se puede deshacer.`)) return;
+  history = [];
+  save(LS_HISTORY, history);
+  selectedHistoryId = 'current';
+  renderSummary();
+  toast('Historial vaciado 🧹');
 };
 
 $('#btn-new-match').onclick = () => {
