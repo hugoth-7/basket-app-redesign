@@ -133,6 +133,9 @@ $('#btn-add-player').onclick = () => {
   $('#player-name').value = ''; $('#player-number').value = ''; $('#player-name').focus();
   renderDraft();
 };
+['#player-name', '#player-number'].forEach(sel => {
+  $(sel).addEventListener('keydown', e => { if (e.key === 'Enter') $('#btn-add-player').click(); });
+});
 $('#btn-save-team').onclick = () => {
   const name = $('#team-name').value.trim();
   if (!name) return toast('Ponle nombre al equipo');
